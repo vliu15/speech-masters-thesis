@@ -54,13 +54,9 @@ class BottleneckBlock(nn.Module):
             self.k_sum.data.mul_(expected_usage)
         self.threshold = threshold
 
-    def update_k(self, x, x_l, mask):
+    def update_k(self, x, x_l):
         mu, emb_width, k_bins = self.mu, self.emb_width, self.k_bins
         with torch.no_grad():
-            # Get rid of elements that are masked
-            x = x[mask.squeeze(-1) > 0]
-            x_l = x_l[mask.squeeze(-1) > 0]
-
             # Calculate new centres
             x_l_onehot = torch.zeros(k_bins, x.shape[0], device=x.device)  # k_bins, N * L
             x_l_onehot.scatter_(0, x_l.view(1, x.shape[0]), 1)
@@ -156,7 +152,7 @@ class BottleneckBlock(nn.Module):
         return x_d
 
     def forward(self, x, mask, update_k=True):
-        N, _, T = x.shape
+        N, D, T = x.shape
 
         # Preprocess
         x, prenorm, mask = self.preprocess(x, mask)
@@ -168,16 +164,16 @@ class BottleneckBlock(nn.Module):
         # Quantise and dequantize through bottleneck
         with torch.no_grad():
             x_l, fit = self.quantize(x)
-            x_d = self.dequantize(x_l) * mask
+            x_d = self.dequantize(x_l)
 
         # Update embeddings
         if update_k:
-            update_metrics = self.update_k(x, x_l, mask)
+            update_metrics = self.update_k(x[mask], x_l[mask])
         else:
             update_metrics = {}
 
         # Loss
-        commit_loss = torch.norm((x_d.detach() - x) * mask)**2 / np.prod(x.shape)
+        commit_loss = torch.norm((x_d.detach() - x) * mask) ** 2 / np.prod(x.shape)
 
         # Passthrough
         x_d = x + (x_d - x).detach()
