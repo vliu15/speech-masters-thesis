@@ -1,0 +1,16 @@
+inflect
+isort==5.9.3
+librosa
+matplotlib
+numpy>=1.17.0
+omegaconf
+pillow
+pylint==2.12.2
+scipy
+soundfile
+tabulate
+toml==0.10.2
+torch>=1.8.0
+tqdm
+unidecode
+yapf==0.31.0

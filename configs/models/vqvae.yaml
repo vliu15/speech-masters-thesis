@@ -1,0 +1,45 @@
+model:
+    _import_: models.vqvae.vqvae.VQVAE
+
+    levels: 3
+    downs_t: [3, 2, 2]
+    strides_t: [2, 2, 2]
+    emb_width: 32
+    l_bins: 2048
+    mu: 0.99
+    multipliers: [2, 1, 1]
+    width: 16
+    depth: 4
+    m_conv: 1.0
+    revival_threshold: 1.0
+    use_bottleneck: true
+    dilation_growth_rate: 3
+    dilation_cycle: null
+    reverse_decoder_dilation: true
+    zero_out: true
+
+    ddi: False
+
+    loss:
+        commit: 0.02
+        multispectral: 1.0
+
+        l1: 0.0
+        l2: 1.0
+        linf: 0.02
+        linf_topk: 2048
+
+        n_ffts: [2048, 1024, 512]
+        hop_lengths: [240, 120, 50]
+        win_lengths: [1200, 600, 240]
+        window: hann
+        log: false
+
+optimizer:
+    name: adam
+    lr: 0.0003
+    betas: [0.9, 0.98]
+    weight_decay: 0
+    eps: 1e-9
+
+scheduler: null

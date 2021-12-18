@@ -1,0 +1,25 @@
+[tool.isort]
+py_version = '37'
+combine_as_imports = true
+include_trailing_comma = true
+order_by_type = false  # do not discern between constants, classes, and methods since some dataset classes look like constants
+multi_line_output = 3
+known_first_party = ['configs', 'datasets', 'models', 'utils']
+line_length = 127
+extend_skip = ['data/', 'logs/']
+
+[tool.yapf]
+based_on_style = 'google'
+column_limit = 127
+
+# behavior when things can't fit on one line: start new line with args
+split_before_first_argument = true
+split_before_expression_after_opening_paren = true  # puts all args on newline after opening paren
+dedent_closing_brackets = true                      # closing bracket is dedented on newline after args
+
+[tool.pylint.'MESSAGES_CONTROL']
+max-line-length = 127
+disable = 'C,R,W0613,W0221,W0201,W0212'  # unused-argument,arguments-differ,attribute-defined-outside-init
+ignore = 'logs/,data/,logger.conf,pyproject.toml,requirements.txt'
+known-third-party = 'torch'
+generated-members = 'numpy.*,torch.*'

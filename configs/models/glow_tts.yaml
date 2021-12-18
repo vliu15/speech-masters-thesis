@@ -1,0 +1,44 @@
+model:
+    _import_: models.glow_tts.glow_tts.GlowTTS
+
+    n_speakers: 1
+    gin_channels: 0
+
+    intersperse_blanks: null  # retrieve from dataset
+
+    encoder:
+        n_vocab: 148
+        out_channels: null  # retrieve from dataset
+        hidden_channels: 192
+        filter_channels: 768
+        filter_channels_dp: 256
+        kernel_size: 3
+        p_dropout: 0.1
+        n_layers: 6
+        n_heads: 2
+        window_size: 4
+        prenet: true
+        mean_only: true
+
+    decoder:
+        in_channels: null  # retrieve from dataset
+        hidden_channels: 192
+        kernel_size: 5
+        n_blocks: 12
+        n_layers: 4
+        n_sqz: 2
+        n_split: 4
+        sigmoid_scale: false
+        p_dropout: 0.05
+        dilation_rate: 1
+
+optimizer:
+    name: adam
+    lr: 1.0
+    betas: [0.9, 0.98]
+    weight_decay: 0
+    eps: 1e-9
+
+scheduler:
+    name: noam
+    warmup_steps: 4000
