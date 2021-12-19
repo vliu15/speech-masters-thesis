@@ -2,6 +2,18 @@ model:
     _import_: models.transformer_lm.TransformerLM
 
     vocab_size: 2048
+    embed_dim: &d_model 512
+    max_len: 5000
+
+    num_layers: 6
+
+    d_model: *d_model
+    nhead: 4
+    dim_feedforward: 2048
+    dropout: 0.1
+    activation: relu
+    layer_norm_eps: 1e-5
+    norm_first: false
 
     vqvae:
         log_dir: ./logs/vqvae
