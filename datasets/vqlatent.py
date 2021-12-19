@@ -16,8 +16,7 @@ class VQLatent(Dataset):
 
     PAD = -100  # <pad> token
     BOS = 0  # <bos> token
-    EOS = 1  # <eos> token
-    OFFSET = 2  # number of special tokens to offset original vocabulary by
+    OFFSET = 1  # number of special tokens to offset original vocabulary by
 
     def __init__(self, config: DictConfig, split: str):
         super().__init__()
@@ -76,7 +75,7 @@ class VQLatent(Dataset):
                 audio = audio[random_start:random_start + self.segment_length * self.metadata["compression_factor"]]
 
         # Prepend <BOS> and append <EOS> tokens and tensorize
-        token = [VQLatent.BOS] + token + [VQLatent.EOS]
+        token = [VQLatent.BOS] + token
         token = torch.tensor(token, dtype=torch.long)
         audio = torch.tensor(audio, dtype=torch.float32)
         token_len = token.shape[-1]

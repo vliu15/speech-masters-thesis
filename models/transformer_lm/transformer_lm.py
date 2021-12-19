@@ -33,8 +33,7 @@ class TransformerLM(TokenToWaveformModel):
 
     PAD = -100  # <pad> token
     BOS = 0  # <bos> token
-    EOS = 1  # <eos> token
-    OFFSET = 2  # number of special tokens to offset original vocabulary by
+    OFFSET = 1  # number of special tokens to offset original vocabulary by
 
     def __init__(self, config):
         super().__init__()
@@ -109,13 +108,12 @@ class TransformerLM(TokenToWaveformModel):
         xh = self.classifier(xh)
         xh = xh.permute(1, 2, 0)
 
-        # For now, don't apply cross entropy loss to <EOS> token prediction
-        loss = F.cross_entropy(x[:, 1:-1], xh[:, :, :-2], ignore_index=TransformerLM.PAD, reduction="mean")
-        indices = (x[:, 1:] != 0)
-        accuracy = torch.sum(indices * (x[:, 1:-1] == xh[:, :, :-2].argmax(1))) / torch.sum(indices)
+        loss = F.cross_entropy(x[:, 1:], xh[:, :, :-1], ignore_index=TransformerLM.PAD, reduction="mean")
+        indices = (x[:, 1:] > 0)
+        accuracy = torch.sum(indices * (x[:, 1:] == xh[:, :, :-1].argmax(1))) / torch.sum(indices)
 
         if not self.training:
-            yh = self.reconstruct(xh[:, :, :-2].argmax(1), mask[:, None, :-2])
+            yh = self.reconstruct(xh[:, :, :-1].argmax(1), mask[:, None, :-1])
         else:
             yh = None
 
