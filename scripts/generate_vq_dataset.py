@@ -11,6 +11,7 @@ python -m scripts.generate_vq_dataset \
 """
 
 import argparse
+import json
 import logging
 import logging.config
 import multiprocessing
@@ -55,27 +56,25 @@ def parse_args():
 
 class ConvenientVQVAE(VQVAE):
 
-    LEVEL = -1
-
     @torch.no_grad()
     def encode_and_quantize(self, x, x_lengths):
         x_mask = torch.unsqueeze(submodules.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 
         # Encode
-        x, x_mask = self.encoders[ConvenientVQVAE.LEVEL](x, x_mask)
+        x, x_mask = self.encoders[VQVAE.LEVEL](x, x_mask)
 
         # Quantize
-        q = self.bottleneck.level_blocks[ConvenientVQVAE.LEVEL].encode(x, x_mask)
+        q = self.bottleneck.level_blocks[VQVAE.LEVEL].encode(x, x_mask)
         return {"x": x.cpu(), "q": q.cpu(), "l": x_mask.sum(-1).long().cpu()}
 
     @torch.no_grad()
     def dequantize_and_decode(self, q, q_lengths):
         # Dequantize
-        x = self.bottleneck.level_blocks[ConvenientVQVAE.LEVEL].decode(q)
+        x = self.bottleneck.level_blocks[VQVAE.LEVEL].decode(q)
 
         # Decode
         x_mask = torch.unsqueeze(submodules.sequence_mask(q_lengths, x.size(2)), 1).to(x.dtype)
-        x, _ = self.decoders[ConvenientVQVAE.LEVEL]([x], [x_mask])
+        x, _ = self.decoders[VQVAE.LEVEL]([x], [x_mask])
         return {"xh": x.cpu()}
 
 
@@ -204,6 +203,14 @@ def main():
     grid = spects_to_grid(s.reshape(1, -1), sh.reshape(1, -1), n=1)
     Image.fromarray(grid).save(os.path.join(args.dump_dir, "sanity.png"))
     logger.info("Finished sanity check")
+
+    # Save metadata
+    metadata = {}
+    metadata["compression_factor"] = np.prod(np.array(config.model.strides_t)**np.array(config.model.downs_t))
+    metadata["vocab_size"] = config.model.l_bins
+    with open(os.path.join(args.dump_dir, "metadata.json"), "w", encoding="utf-8") as f:
+        json.dump(metadata, f)
+    logger.info("Saved metadata")
 
     logger.info("Done")
 

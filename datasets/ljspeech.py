@@ -21,6 +21,9 @@ class LJSpeech(Dataset):
         self.root = config.dataset.dataset_path
         self.intersperse_blanks = config.dataset.intersperse_blanks
 
+        if config.dataset.segment_length > 0:
+            assert config.dataset.segment_length % TRUNC_MOD == 0, \
+                f"config.dataset.segment_length={config.dataset.segment_length} must be a multiple of TRUNC_MOD={TRUNC_MOD}"
         self.segment_length = config.dataset.segment_length
         self.use_token = config.dataset.use_token
         self.use_spect = config.dataset.use_spect
@@ -70,13 +73,19 @@ class LJSpeech(Dataset):
         audio = torch.from_numpy(audio)
 
         if self.segment_length > 0:
+            # Truncate to segment_length, which should be modulo TRUNC_MOD
             if audio.shape[-1] > self.segment_length:
                 random_start = random.randint(0, audio.shape[-1] - self.segment_length)
                 audio = audio[random_start:random_start + self.segment_length]
+                audio_len = audio.shape[-1]
             else:
                 # In case entire batch of examples is shorter than self.segment_length, pad here
+                audio_len = audio.shape[-1]
                 audio = F.pad(audio, (0, self.segment_length - len(audio)))
-        audio = audio[:len(audio) - len(audio) % TRUNC_MOD]
+        else:
+            # Truncate to modulo compression factor to avoid up/down-sampling length mismatches
+            audio = audio[:len(audio) - len(audio) % TRUNC_MOD]
+            audio_len = audio.shape[-1]
 
         # Compute spectrogram
         if self.use_spect:
@@ -102,9 +111,7 @@ class LJSpeech(Dataset):
         else:
             token = token_len = None
 
-        if self.use_audio:
-            audio_len = audio.shape[-1]
-        else:
+        if not self.use_audio:
             audio = audio_len = None
 
         return token, token_len, spect, spect_len, audio, audio_len, None

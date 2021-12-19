@@ -10,6 +10,8 @@ from models.vqvae.losses import MultiNormReconstructionLoss, MultiResolutionSpec
 
 class VQVAE(WaveformReconstructionModel):
 
+    LEVEL = -1
+
     def __init__(self, config):
         super().__init__()
         self.levels = config.model.levels
@@ -56,10 +58,10 @@ class VQVAE(WaveformReconstructionModel):
 
         # HACK: Hard-code to last level for now, leave as is until scaling up
         config.model.levels = 1
-        config.model.multipliers = config.model.multipliers[:1]
+        config.model.multipliers = [config.model.multipliers[VQVAE.LEVEL]]
         self.levels = 1
-        self.encoders = self.encoders[:1]
-        self.decoders = self.decoders[:1]
+        self.encoders = nn.ModuleList([self.encoders[VQVAE.LEVEL]])
+        self.decoders = nn.ModuleList([self.decoders[VQVAE.LEVEL]])
         # ####
 
         if config.model.use_bottleneck:

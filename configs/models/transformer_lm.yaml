@@ -1,0 +1,8 @@
+model:
+    _import_: models.transformer_lm.TransformerLM
+
+    vocab_size: 2048
+
+    vqvae:
+        log_dir: ./logs/vqvae
+        ckpt_num: 1

@@ -1,0 +1,16 @@
+dataset:
+    _import_: datasets.vqlatent.VQLatent
+
+    dataset_path: ./data/VQ-Latent
+
+    sample_rate: 22050
+    n_fft: 1024
+    hop_length: 256
+    win_length: 1024
+    n_mels: 80
+    intersperse_blanks: true
+    segment_length: -1
+
+    use_token: true
+    use_spect: false
+    use_audio: true
