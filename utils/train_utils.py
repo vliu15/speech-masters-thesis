@@ -37,7 +37,7 @@ def train_step(
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler._LRScheduler,
     scaler: torch.cuda.amp.GradScaler = None,
-    device: str = "cuda",
+    device: str,
     rank: int = 0,
 ):
     """Performs one step of forward pass, backpropagation, optimizer and EMA step"""
@@ -46,7 +46,7 @@ def train_step(
 
     # Mixed precision: O1 forward pass, scale/clip gradients, schedule LR when no gradient overflow
     if config.train.fp16:
-        with torch.cuda.amp.autocast():
+        with torch.cuda.amp.autocast(enabled=config.train.fp16):
             scaling_factor = scaler.get_scale()
 
             loss_dict, metrics_dict = model.supervised_step(batch)
@@ -103,7 +103,7 @@ def train_epoch(
     train_dataloader: torch.utils.data.DataLoader,
     writer: torch.utils.tensorboard.SummaryWriter,
     scaler: torch.cuda.amp.GradScaler = None,
-    device: str = "cuda",
+    device: str,
     rank: int = 0,
 ):
     """Runs one epoch of standard neural network training"""
@@ -162,6 +162,11 @@ def train_epoch(
                     pbar.set_postfix(postfix)
                     losses, metrics = defaultdict(float), defaultdict(float)
 
+                # Save checkpoint
+                if global_step % config.train.ckpt_every_n_steps == 0:
+                    save_checkpoint(config, global_step, epoch, model, ema, optimizer, scheduler)
+            break
+
     return global_step, epoch + 1
 
 
@@ -170,7 +175,7 @@ def val_step(
     batch: Iterable[torch.Tensor],
     config: DictConfig,
     model: nn.Module,
-    device: str = "cuda",
+    device: str,
 ):
     """Performs one validation step"""
     batch = to_device(batch, device)
@@ -187,7 +192,7 @@ def val_epoch(
     ema: nn.Module,
     val_dataloader: torch.utils.data.DataLoader,
     writer: torch.utils.tensorboard.SummaryWriter,
-    device: str = "cuda",
+    device: str,
     rank: int = 0,
 ):
     """Runs one epoch of validation (noop if rank!=0)"""
@@ -232,7 +237,7 @@ def val_epoch(
         losses=losses,
         metrics=metrics,
     )
-    return torch.cat(y, dim=0).float().numpy(), torch.cat(yh, dim=0).float().numpy(), {**loss_dict, **metrics_dict}
+    return torch.cat(y, dim=0).float().numpy(), torch.cat(yh, dim=0).float().numpy(), {**losses, **metrics}
 
 
 def train(
@@ -263,38 +268,45 @@ def train(
     scaler = torch.cuda.amp.GradScaler() if config.train.fp16 else None
     with tqdm(initial=epoch, total=config.train.total_epochs, desc="Global epoch", postfix=postfix,
               disable=(rank != 0)) as pbar:
-        global_step, epoch = train_epoch(
-            global_step=global_step,
-            epoch=epoch,
-            config=config,
-            model=model,
-            ema=ema,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            train_dataloader=train_dataloader,
-            writer=writer,
-            scaler=scaler,
-            device=device,
-            rank=rank,
-        )
-        if epoch % config.train.eval_every_n_epochs == 0:
-            y, yh, postfix = val_epoch(
+
+        # Loop through epochs
+        while True:
+            if epoch >= config.train.total_epochs:
+                break
+
+            global_step, epoch = train_epoch(
+                global_step=global_step,
                 epoch=epoch,
                 config=config,
                 model=model,
                 ema=ema,
-                val_dataloader=val_dataloader,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                train_dataloader=train_dataloader,
                 writer=writer,
+                scaler=scaler,
                 device=device,
                 rank=rank,
             )
+            if epoch % config.train.eval_every_n_epochs == 0:
+                y, yh, postfix = val_epoch(
+                    epoch=epoch,
+                    config=config,
+                    model=model,
+                    ema=ema,
+                    val_dataloader=val_dataloader,
+                    writer=writer,
+                    device=device,
+                    rank=rank,
+                )
 
-        if isinstance(model, (TokenToWaveformModel, WaveformReconstructionModel)):
-            save_audio_and_computed_spect(config, epoch, writer, y, yh, n=4)
-        elif isinstance(model, (TokenToSpectrogramModel, SpectrogramReconstructionModel)):
-            save_spect_and_inverted_audio(config, epoch, writer, y, yh, n=4)
+                if isinstance(model, (TokenToWaveformModel, WaveformReconstructionModel)):
+                    save_audio_and_computed_spect(config, epoch, writer, y, yh, n=4)
+                elif isinstance(model, (TokenToSpectrogramModel, SpectrogramReconstructionModel)):
+                    save_spect_and_inverted_audio(config, epoch, writer, y, yh, n=4)
 
-        pbar.update(1)
+            pbar.set_postfix(postfix)
+            pbar.update(1)
 
     save_checkpoint(config, global_step, -1, model, ema, optimizer, scheduler)
     if rank == 0:

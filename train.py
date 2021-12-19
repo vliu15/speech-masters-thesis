@@ -11,7 +11,7 @@ import torch.multiprocessing as multiprocessing
 from omegaconf import OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 
-from utils.commons import get_dataloaders, get_model, get_optimizer, seed_all_rng
+from utils.commons import get_dataloaders, get_model, get_optimizer, seed_all_rng, setup_logdir
 from utils.train_utils import train
 
 logging.config.fileConfig("logger.conf")
@@ -20,11 +20,13 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True, type=str, help="Name of model config class in configs/models")
+    parser.add_argument(
+        "--model", required=False, type=str, default="vqvae", help="Name of model config class in configs/models"
+    )
     parser.add_argument(
         "--dataset", required=False, type=str, default="ljspeech", help="Name of dataset config class in configs/datasets"
     )
-    parser.add_argument("--log_dir", required=False, type=str, default="./logs", help="Path to log directory")
+    parser.add_argument("--log_dir", required=False, type=str, default="./logs/vqvae", help="Path to log directory")
     parser.add_argument("--seed", required=False, type=int, default=0, help="Seed for pseudo RNG")
     parser.add_argument("--batch_size", required=False, type=int, default=1, help="Batch size to use for training")
 
@@ -37,7 +39,7 @@ def parse_args():
     parser.add_argument("--total_epochs", required=False, type=int, default=1000, help="Total epochs of training")
     parser.add_argument("--load_ckpt", required=False, type=str, default=None, help="Path to load checkpoint")
 
-    parser.add_argument("--ckpt_every_n_steps", required=False, type=int, default=10000, help="Checkpointing step frequency")
+    parser.add_argument("--ckpt_every_n_steps", required=False, type=int, default=1, help="Checkpointing step frequency")
     parser.add_argument("--log_every_n_steps", required=False, type=int, default=10, help="Logging step frequency")
     parser.add_argument("--eval_every_n_epochs", required=False, type=int, default=5, help="Validation epoch frequency")
     args = parser.parse_args()
@@ -211,6 +213,10 @@ def main():
         config.train.n_gpus = 0
         config.train.fp16 = False
 
+    # Set up log directory
+    setup_logdir(config)
+
+    # Train
     if n_gpus <= 1:
         train_single(config)
     else:

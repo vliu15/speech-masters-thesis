@@ -152,7 +152,7 @@ class BottleneckBlock(nn.Module):
         return x_d
 
     def forward(self, x, mask, update_k=True):
-        N, D, T = x.shape
+        N, _, T = x.shape
 
         # Preprocess
         x, prenorm, mask = self.preprocess(x, mask)
@@ -168,12 +168,13 @@ class BottleneckBlock(nn.Module):
 
         # Update embeddings
         if update_k:
-            update_metrics = self.update_k(x[mask], x_l[mask])
+            indices = mask.long().flatten()
+            update_metrics = self.update_k(x[indices], x_l[indices])
         else:
             update_metrics = {}
 
         # Loss
-        commit_loss = torch.norm((x_d.detach() - x) * mask) ** 2 / np.prod(x.shape)
+        commit_loss = torch.norm((x_d.detach() - x) * mask)**2 / np.prod(x.shape)
 
         # Passthrough
         x_d = x + (x_d - x).detach()

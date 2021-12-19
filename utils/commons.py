@@ -228,9 +228,8 @@ def setup_logdir(config):
     """Initializes logs folder"""
     import os
 
-    from hydra.utils import to_absolute_path
     from omegaconf import OmegaConf
-    config.train.log_dir = to_absolute_path(config.train.log_dir)
+
     os.makedirs(config.train.log_dir, exist_ok=True)
     os.makedirs(os.path.join(config.train.log_dir, "ckpts"), exist_ok=True)
     os.makedirs(os.path.join(config.train.log_dir, "spect"), exist_ok=True)

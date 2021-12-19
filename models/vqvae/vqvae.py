@@ -87,55 +87,6 @@ class VQVAE(WaveformReconstructionModel):
         self.commit = config.model.loss.commit
         self.multispectral = config.model.loss.multispectral
 
-    def _decode(self, zs, start_level=0, end_level=None):
-        # Decode
-        if end_level is None:
-            end_level = self.levels
-        assert len(zs) == end_level - start_level
-        xs_quantized = self.bottleneck.decode(zs, start_level=start_level, end_level=end_level)
-        assert len(xs_quantized) == end_level - start_level
-
-        # Use only lowest level
-        decoder, x_quantized = self.decoders[start_level], xs_quantized[0:1]
-        x_out = decoder(x_quantized, all_levels=False)
-        x_out = self.postprocess(x_out)
-        return x_out
-
-    def decode(self, zs, start_level=0, end_level=None, bs_chunks=1):
-        z_chunks = [torch.chunk(z, bs_chunks, dim=0) for z in zs]
-        x_outs = []
-        for i in range(bs_chunks):
-            zs_i = [z_chunk[i] for z_chunk in z_chunks]
-            x_out = self._decode(zs_i, start_level=start_level, end_level=end_level)
-            x_outs.append(x_out)
-        return torch.cat(x_outs, dim=0)
-
-    def _encode(self, x, start_level=0, end_level=None):
-        # Encode
-        if end_level is None:
-            end_level = self.levels
-        x_in = self.preprocess(x)
-        xs = []
-        for level in range(self.levels):
-            encoder = self.encoders[level]
-            x_out = encoder(x_in)
-            xs.append(x_out[-1])
-        zs = self.bottleneck.encode(xs)
-        return zs[start_level:end_level]
-
-    def encode(self, x, start_level=0, end_level=None, bs_chunks=1):
-        x_chunks = torch.chunk(x, bs_chunks, dim=0)
-        zs_list = []
-        for x_i in x_chunks:
-            zs_i = self._encode(x_i, start_level=start_level, end_level=end_level)
-            zs_list.append(zs_i)
-        zs = [torch.cat(zs_level_list, dim=0) for zs_level_list in zip(*zs_list)]
-        return zs
-
-    def sample(self, n_samples, z_shapes):
-        zs = [torch.randint(0, self.l_bins, size=(n_samples, *z_shape), device="cuda") for z_shape in z_shapes]
-        return self.decode(zs)
-
     def forward(self, x, x_lengths, speaker=None):
         x_mask = torch.unsqueeze(submodules.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 

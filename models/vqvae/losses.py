@@ -33,9 +33,9 @@ class MultiResolutionSpectralLoss(nn.Module):
 
     @staticmethod
     def downsample_mask(mask, stft):
-        mask = F.pad(mask, (stft.pad_amount, 0, 0, 0), mode="constant", value=1)
-        mask = F.pad(mask, (0, stft.pad_amount, 0, 0), mode="constant", value=0)
-        return mask[:, :, stft.n_fft // 2:-stft.n_fft // 2:stft.hop_length]
+        mask = F.pad(mask, (stft.pad_amount, 0, 0, 0, 0, 0), mode="constant", value=1)
+        mask = F.pad(mask, (0, stft.pad_amount, 0, 0, 0, 0), mode="constant", value=0)
+        return mask[:, :, stft.n_fft // 2:-stft.n_fft // 2 + 1:stft.hop_length]
 
     def forward(self, y, yh, mask):
         loss = 0.0

@@ -11,6 +11,8 @@ from torch.utils.data import Dataset
 from datasets.transforms import MelSpectrogram, STFT
 from models.parser import CMUDictParser
 
+TRUNC_MOD = 512
+
 
 class LJSpeech(Dataset):
 
@@ -72,7 +74,9 @@ class LJSpeech(Dataset):
                 random_start = random.randint(0, audio.shape[-1] - self.segment_length)
                 audio = audio[random_start:random_start + self.segment_length]
             else:
-                pass  # this will be taken care of in collate_fn
+                # In case entire batch of examples is shorter than self.segment_length, pad here
+                audio = F.pad(audio, (0, self.segment_length - len(audio)))
+        audio = audio[:len(audio) - len(audio) % TRUNC_MOD]
 
         # Compute spectrogram
         if self.use_spect:

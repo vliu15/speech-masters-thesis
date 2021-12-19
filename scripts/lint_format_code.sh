@@ -1,4 +1,7 @@
 #!/bin/bash
+#
+# Sample usage:
+# bash scripts/lint_format_code.sh
 
 echo '*** PYLINT ***'
 pylint *
