@@ -32,7 +32,7 @@ from tqdm import tqdm
 import models.glow_tts.submodules as submodules
 from models.vqvae.vqvae import VQVAE
 from utils.commons import get_dataloaders, to_device
-from utils.train_hooks import spects_to_grid
+from utils.train_utils import spects_to_grid
 
 logging.config.fileConfig("logger.conf")
 logger = logging.getLogger(__name__)

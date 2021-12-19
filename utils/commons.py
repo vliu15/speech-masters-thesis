@@ -2,88 +2,23 @@
 
 import logging
 import logging.config
-import random
+from typing import Iterable, Tuple
 
-import numpy as np
 import torch
 import torch.distributed as distributed
 import torch.nn as nn
-from tabulate import tabulate
+from omegaconf import DictConfig
 
 logging.config.fileConfig("logger.conf")
 logger = logging.getLogger(__name__)
 
 
-def barrier():
-    """Handy wrapper for distributed training (noop in single xpu training)"""
-    if distributed.is_initialized():
-        distributed.barrier()
-
-
-def to_device(batch, device):
+def to_device(batch: Iterable[torch.Tensor], device: str) -> None:
     """Puts a batch onto the specified device"""
     return [b.to(device) if isinstance(b, torch.Tensor) else b for b in batch]
 
 
-def seed_all_rng(seed: int, cuda: bool = True) -> None:
-    """Sets seed for all Python/Numpy/Pytorch pseudo RNG"""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if cuda:
-        torch.cuda.manual_seed_all(seed)
-        # torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.enabled = True
-        torch.backends.cudnn.benchmark = True
-
-
-def get_human_readable_count(number: int) -> str:
-    """Abbreviates integers"""
-    assert number >= 0
-    labels = [" ", "K", "M", "B", "T"]
-    num_digits = int(np.floor(np.log10(number)) + 1 if number > 0 else 1)
-    num_groups = int(np.ceil(num_digits / 3))
-    num_groups = min(num_groups, len(labels))  # don't abbreviate beyond trillions
-    shift = -3 * (num_groups - 1)
-    number = number * (10**shift)
-    index = num_groups - 1
-    if index < 1 or number >= 100:
-        return f"{int(number):,d} {labels[index]}"
-
-    return f"{number:,.1f} {labels[index]}"
-
-
-def print_top_level_summary(model: nn.Module) -> None:
-    """Prints high-level model summary to console"""
-    headers = ["", "Name", "Module", "Params", "Buffers"]
-    table = []
-    for index, (name, module) in enumerate(model.named_children()):
-        params = get_human_readable_count(sum(p.numel() for p in module.parameters() if p.requires_grad))
-        buffers = get_human_readable_count(sum(b.numel() for b in module.buffers()))
-        table += [[index, name, module.__class__.__name__, params, buffers]]
-
-    model_summary = tabulate(table, headers=headers, tablefmt="pretty", colalign=["left"] * 3 + ["right"] * 2)
-
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    non_trainable_params = sum(p.numel() for p in model.parameters() if not p.requires_grad)
-    all_params_megabytes = (trainable_params + trainable_params) * 32 / 8 * 1e-6
-    all_buffers_megabytes = sum(b.numel() for b in model.buffers()) * 32 / 8 * 1e-6
-
-    parameters_summary = tabulate(
-        [
-            [get_human_readable_count(trainable_params), "Trainable Params"],
-            [get_human_readable_count(non_trainable_params), "Non-trainable Params"],
-            [f"{all_params_megabytes:,.3f}", "Total estimated model params size (MB)"],
-            [f"{all_buffers_megabytes:,.3f}", "Total estimated model buffers size (MB)"],
-        ],
-        tablefmt="plain",
-        colalign=["right", "left"]
-    )
-
-    print(model_summary + "\n" + parameters_summary + "\n")
-
-
-def get_model(config, device: str = "cuda:0", rank: int = 0):
+def get_model(config: DictConfig, device: str = "cuda:0", rank: int = 0) -> Tuple[nn.Module, nn.Module]:
     """Returns initialized model and EMA"""
     import importlib
     if rank != 0:
@@ -129,7 +64,11 @@ def get_model(config, device: str = "cuda:0", rank: int = 0):
     return model, ema
 
 
-def get_dataloaders(config, rank: int = 0, world_size: int = 1):
+def get_dataloaders(
+    config: DictConfig,
+    rank: int = 0,
+    world_size: int = 1,
+) -> Tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
     """Returns train and val dataloaders (val only for rank==0)"""
     import importlib
 
@@ -178,7 +117,10 @@ def get_dataloaders(config, rank: int = 0, world_size: int = 1):
     return train_dataloader, val_dataloader
 
 
-def get_optimizer(config, model):
+def get_optimizer(
+    config: DictConfig,
+    model: nn.Module,
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler._LRScheduler]:
     """Returns model optimizer and LR scheduler"""
     # Init optimizer
     if config.optimizer.name == "adam":
@@ -224,7 +166,7 @@ def get_optimizer(config, model):
     return optimizer, scheduler
 
 
-def setup_logdir(config):
+def setup_logdir(config: DictConfig) -> None:
     """Initializes logs folder"""
     import os
 
