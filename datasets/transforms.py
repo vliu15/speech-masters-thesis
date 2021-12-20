@@ -6,7 +6,6 @@ from functools import lru_cache
 import librosa
 import numpy as np
 import torch
-import torch.fft as fft
 import torch.nn as nn
 import torch.nn.functional as F
 from librosa.util import pad_center, tiny
@@ -157,35 +156,3 @@ class STFT(nn.Module):
         inverse_transform = inverse_transform[:, :, :-self.pad_amount:]
 
         return inverse_transform
-
-
-@lru_cache(maxsize=8192)  # should be fine to make this large since we're just storing ints
-def _next_fast_len(n: int):
-    return next_fast_len(n)
-
-
-@lru_cache(maxsize=4)
-def auto_correlation(x: torch.Tensor):
-    """
-    Computes the auto-covariance of audio samples
-
-    Reference: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
-    """
-    n = x.size(-1)
-    m = _next_fast_len(n)
-
-    x = x - x.mean(dim=-1, keepdim=True)
-
-    x = torch.view_as_real(fft.rfft(x, n=2 * m))
-    x = x.pow(2).sum(-1)
-    x = fft.irfft(x, n=2 * m)
-
-    x = x[..., :n]
-    x = x / torch.arange(n, 0, -1, dtype=x.dtype, device=x.device)
-    x = x / x[..., :1]
-    return x
-
-
-def auto_covariance(x: torch.Tensor):
-    """Computes the auto-correlation of audio samples"""
-    return auto_correlation(x) * x.var(dim=-1, unbiased=False, keepdim=True)

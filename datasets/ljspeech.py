@@ -74,13 +74,13 @@ class LJSpeech(Dataset):
 
         if self.segment_length > 0:
             # Truncate to segment_length, which should be modulo TRUNC_MOD
-            if audio.shape[-1] > self.segment_length:
-                random_start = random.randint(0, audio.shape[-1] - self.segment_length)
+            if len(audio) > self.segment_length:
+                random_start = random.randint(0, len(audio) - self.segment_length)
                 audio = audio[random_start:random_start + self.segment_length]
-                audio_len = audio.shape[-1]
+                audio_len = len(audio)
             else:
                 # In case entire batch of examples is shorter than self.segment_length, pad here
-                audio_len = audio.shape[-1]
+                audio_len = len(audio)
                 audio = F.pad(audio, (0, self.segment_length - len(audio)))
         else:
             # Truncate to modulo compression factor to avoid up/down-sampling length mismatches

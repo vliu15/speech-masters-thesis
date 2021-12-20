@@ -5,7 +5,7 @@ import logging
 import logging.config
 import os
 from collections import defaultdict
-from typing import Iterable
+from typing import Any, Iterable
 
 import torch
 import torch.distributed as distributed
@@ -33,6 +33,12 @@ from utils.train_utils import (
     seed_all_rng,
 )
 
+# On rice.stanford.edu, only older versions of pytorch are supported
+try:
+    from torch.cuda.amp.autocast import GradScaler
+except ModuleNotFoundError:
+    GradScaler = None
+
 logging.config.fileConfig("logger.conf")
 logger = logging.getLogger(__name__)
 
@@ -47,23 +53,21 @@ def parse_args():
     )
     parser.add_argument("--log_dir", required=False, type=str, default="./logs/vqvae", help="Path to log directory")
     parser.add_argument("--seed", required=False, type=int, default=0, help="Seed for pseudo RNG")
-    parser.add_argument("--batch_size", required=False, type=int, default=1, help="Batch size to use for training")
+    parser.add_argument("--batch_size", required=False, type=int, default=8, help="Batch size to use for training")
 
     parser.add_argument("--ema", required=False, default=False, action="store_true", help="Whether to track model EMA")
     parser.add_argument("--grad_clip_norm", required=False, type=float, default=None, help="Gradient clipping norm")
-    parser.add_argument("--fp32", required=False, default=False, action="store_true", help="Run in FP32")
+    parser.add_argument("--fp16", required=False, default=False, action="store_true", help="Run in FP16")
 
-    parser.add_argument("--num_workers", required=False, type=int, default=0, help="Number of dataloader workers")
+    parser.add_argument("--num_workers", required=False, type=int, default=8, help="Number of dataloader workers")
     parser.add_argument("--n_gpus", required=False, type=int, default=-1, help="Number of gpus to train on")
     parser.add_argument("--total_epochs", required=False, type=int, default=1000, help="Total epochs of training")
     parser.add_argument("--load_ckpt", required=False, type=str, default=None, help="Path to load checkpoint")
 
-    parser.add_argument("--ckpt_every_n_steps", required=False, type=int, default=1, help="Checkpointing step frequency")
+    parser.add_argument("--ckpt_every_n_steps", required=False, type=int, default=5000, help="Checkpointing step frequency")
     parser.add_argument("--log_every_n_steps", required=False, type=int, default=10, help="Logging step frequency")
     parser.add_argument("--eval_every_n_epochs", required=False, type=int, default=5, help="Validation epoch frequency")
     args = parser.parse_args()
-
-    args.fp16 = not args.fp32
     return args
 
 
@@ -76,7 +80,7 @@ def train_step(
     ema: nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler._LRScheduler,
-    scaler: torch.cuda.amp.GradScaler = None,
+    scaler: GradScaler = None,
     device: str,
     rank: int = 0,
 ):
@@ -104,6 +108,7 @@ def train_step(
             else:
                 logger.debug("[Rank %s] Gradient overflow detected. Loss scale lowered to %s", rank, scaler.get_scale())
                 scaling_factor = scaler.get_scale()
+        pass
 
     # Full precision: O0 forward pass with optional gradient clipping, schedule LR
     else:
@@ -142,7 +147,7 @@ def train_epoch(
     scheduler: torch.optim.lr_scheduler._LRScheduler,
     train_dataloader: torch.utils.data.DataLoader,
     writer: torch.utils.tensorboard.SummaryWriter,
-    scaler: torch.cuda.amp.GradScaler = None,
+    scaler: GradScaler = None,
     device: str,
     rank: int = 0,
 ):
@@ -183,7 +188,7 @@ def train_epoch(
             if rank == 0:
                 # Update averages
                 accumulate_stats(
-                    config=config,
+                    over_n_steps=config.train.log_every_n_steps,
                     loss_dict=loss_dict,
                     metrics_dict=metrics_dict,
                     accumulated_loss=losses,
@@ -205,7 +210,6 @@ def train_epoch(
                 # Save checkpoint
                 if global_step % config.train.ckpt_every_n_steps == 0:
                     save_checkpoint(config, global_step, epoch, model, ema, optimizer, scheduler)
-            break
 
     return global_step, epoch + 1
 
@@ -219,8 +223,7 @@ def val_step(
 ):
     """Performs one validation step"""
     batch = to_device(batch, device)
-    with torch.cuda.amp.autocast(enabled=config.train.fp16):
-        loss_dict, metrics_dict = model.supervised_step(batch)
+    loss_dict, metrics_dict = model.supervised_step(batch)
     return loss_dict, metrics_dict
 
 
@@ -235,10 +238,7 @@ def val_epoch(
     device: str,
     rank: int = 0,
 ):
-    """Runs one epoch of validation (noop if rank!=0)"""
-    if rank != 0:
-        return
-
+    """Runs one epoch of validation"""
     losses, metrics = defaultdict(float), defaultdict(float)
 
     y, yh = [], []
@@ -261,7 +261,7 @@ def val_epoch(
 
             # Accumulate losses, ground truths, and predictions
             accumulate_stats(
-                config=config,
+                over_n_steps=len(val_dataloader),
                 loss_dict=loss_dict,
                 metrics_dict=metrics_dict,
                 accumulated_loss=losses,
@@ -305,7 +305,7 @@ def train(
 
     # Train
     postfix = {}
-    scaler = torch.cuda.amp.GradScaler() if config.train.fp16 else None
+    scaler = GradScaler() if config.train.fp16 else None
     with tqdm(initial=epoch, total=config.train.total_epochs, desc="Global epoch", postfix=postfix,
               disable=(rank != 0)) as pbar:
 
@@ -328,7 +328,7 @@ def train(
                 device=device,
                 rank=rank,
             )
-            if epoch % config.train.eval_every_n_epochs == 0:
+            if epoch % config.train.eval_every_n_epochs == 0 and rank == 0:
                 y, yh, postfix = val_epoch(
                     epoch=epoch,
                     config=config,
@@ -345,11 +345,12 @@ def train(
                 elif isinstance(model, (TokenToSpectrogramModel, SpectrogramReconstructionModel)):
                     save_spect_and_inverted_audio(config, epoch, writer, y, yh, n=4)
 
+            barrier()
             pbar.set_postfix(postfix)
             pbar.update(1)
 
-    save_checkpoint(config, global_step, -1, model, ema, optimizer, scheduler)
     if rank == 0:
+        save_checkpoint(config, global_step, -1, model, ema, optimizer, scheduler)
         writer.close()
 
 
@@ -529,9 +530,11 @@ def main():
 
     # Train
     if n_gpus <= 1:
+        logger.info("Training with 1 GPU.")
         train_single(config)
     else:
         assert config.train.n_gpus <= max_gpus, f"Specified {config.train.n_gpus} gpus, but only {max_gpus} total"
+        logger.info("Training with %s GPUs.", config.train.n_gpus)
         multiprocessing.spawn(train_multi, args=[config.train.n_gpus, config], nprocs=config.train.n_gpus, join=True)
 
 

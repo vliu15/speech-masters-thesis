@@ -118,7 +118,7 @@ def print_top_level_summary(model: nn.Module) -> None:
 
 
 def accumulate_stats(
-    config: DictConfig,
+    over_n_steps: int,
     loss_dict: Dict[str, torch.Tensor],
     metrics_dict: Dict[str, torch.Tensor],
     accumulated_loss: Dict[str, torch.Tensor],
@@ -127,9 +127,9 @@ def accumulate_stats(
     """Accumulates loss into `accumulated_loss` and metrics into `accumulated_metrics` in-place"""
     for key in loss_dict.keys():
         if "loss" in key:
-            accumulated_loss[key] += loss_dict[key].cpu().item() / config.train.log_every_n_steps
+            accumulated_loss[key] += loss_dict[key].cpu().item() / over_n_steps
     for key in metrics_dict.keys():
-        accumulated_metrics[key] += metrics_dict[key].cpu().item() / config.train.log_every_n_steps
+        accumulated_metrics[key] += metrics_dict[key].cpu().item() / over_n_steps
 
 
 def log_stats(

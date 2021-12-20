@@ -4,11 +4,11 @@ model:
     levels: 3
     downs_t: [3, 2, 2]
     strides_t: [2, 2, 2]
-    emb_width: 32
-    l_bins: 2048
+    emb_width: 64
+    l_bins: 1024
     mu: 0.99
     multipliers: [2, 1, 1]
-    width: 16
+    width: 32
     depth: 4
     m_conv: 1.0
     revival_threshold: 1.0
@@ -18,7 +18,7 @@ model:
     reverse_decoder_dilation: true
     zero_out: true
 
-    ddi: False
+    ddi: false
 
     loss:
         commit: 0.02

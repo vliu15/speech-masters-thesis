@@ -86,7 +86,7 @@ def get_dataloaders(
             train_dataset,
             batch_size=config.train.batch_size,
             num_workers=config.train.num_workers,
-            sampler=DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False),
+            sampler=DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True),
             pin_memory=True,
             drop_last=False,
             collate_fn=dataset.collate,
