@@ -97,12 +97,16 @@ class BottleneckBlock(nn.Module):
         mask = mask.permute(0, 2, 1).contiguous()
         mask = mask.reshape(-1, 1)
 
+        indices = (mask != 0)[:, 0]
+
         if x.shape[-1] == self.emb_width:
-            prenorm = torch.norm(x - torch.mean(x)) / np.sqrt(np.prod(x.shape))
+            _x = x[indices]
+            prenorm = torch.norm(_x - torch.mean(_x)) / np.sqrt(np.prod(_x.shape))
         elif x.shape[-1] == 2 * self.emb_width:
             x1, x2 = x[..., :self.emb_width], x[..., self.emb_width:]
-            prenorm = (torch.norm(x1 - torch.mean(x1)) / np.sqrt(np.prod(x1.shape))) + (
-                torch.norm(x2 - torch.mean(x2)) / np.sqrt(np.prod(x2.shape))
+            _x1, _x2 = x1[indices], x2[indices]
+            prenorm = (torch.norm(_x1 - torch.mean(_x1)) / np.sqrt(np.prod(_x1.shape))) + (
+                torch.norm(_x2 - torch.mean(_x2)) / np.sqrt(np.prod(_x2.shape))
             )
 
             # Normalise
@@ -116,10 +120,10 @@ class BottleneckBlock(nn.Module):
         N, T = x_shape
         x_d = x_d.view(N, T, -1).permute(0, 2, 1).contiguous()
         x_l = x_l.view(N, T)
-        mask = mask.reshape(N, T, 1).permute(0, 2, 1).contiguous()
+        mask = mask.view(N, T, 1).permute(0, 2, 1).contiguous()
         return x_l, x_d, mask
 
-    def quantize(self, x):
+    def quantize(self, x, mask=None):
         # Calculate latent code x_l
         k_w = self.k.t()
         distance = torch.sum(
@@ -128,7 +132,12 @@ class BottleneckBlock(nn.Module):
             k_w**2, dim=0, keepdim=True
         )  # (N * L, b)
         min_distance, x_l = torch.min(distance, dim=-1)
-        fit = torch.mean(min_distance)
+
+        # Compute masked fit for more accurate metrics
+        if mask is None:
+            fit = torch.mean(min_distance)
+        else:
+            fit = torch.sum(min_distance * mask) / (mask.sum() * distance.shape[-1])
         return x_l, fit
 
     def dequantize(self, x_l):
@@ -164,7 +173,7 @@ class BottleneckBlock(nn.Module):
 
         # Preprocess
         x, prenorm, mask = self.preprocess(x, mask)
-        indices = mask.bool()[:, 0]
+        indices = (mask != 0)[:, 0]
 
         # Init k if not inited
         if update_k and not self.init:
@@ -172,7 +181,7 @@ class BottleneckBlock(nn.Module):
 
         # Quantise and dequantize through bottleneck
         with torch.no_grad():
-            x_l, fit = self.quantize(x)
+            x_l, fit = self.quantize(x, mask)
             x_d = self.dequantize(x_l)
 
         # Update embeddings
@@ -186,11 +195,10 @@ class BottleneckBlock(nn.Module):
 
         # Passthrough
         x_d = x + (x_d - x).detach()
-        x_d = x_d * mask
 
         # Postprocess
         x_l, x_d, mask = self.postprocess(x_l, x_d, (N, T), mask)
-        return x_l, x_d, commit_loss, dict(fit=fit, pn=prenorm, **update_metrics)
+        return x_l, x_d * mask, commit_loss, dict(fit=fit, pn=prenorm, **update_metrics)
 
 
 class Bottleneck(nn.Module):

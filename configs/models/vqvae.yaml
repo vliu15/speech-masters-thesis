@@ -2,13 +2,13 @@ model:
     _import_: models.vqvae.vqvae.VQVAE
 
     levels: 3
-    downs_t: [3, 2, 2]
+    downs_t: [3, 3, 2]
     strides_t: [2, 2, 2]
-    emb_width: 64
+    emb_width: 128
     l_bins: 2048
     mu: 0.99
     multipliers: [2, 1, 1]
-    width: 64
+    width: 128
     depth: 4
     m_conv: 1.0
     revival_threshold: 1.0
