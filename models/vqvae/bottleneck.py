@@ -9,7 +9,7 @@ from utils.torch_utils import safe_log
 
 class BottleneckBlock(nn.Module):
 
-    def __init__(self, k_bins, emb_width, mu, threshold):
+    def __init__(self, k_bins: int, emb_width: int, mu: float, threshold: float):
         super().__init__()
         self.k_bins = k_bins
         self.emb_width = emb_width
@@ -123,9 +123,9 @@ class BottleneckBlock(nn.Module):
         # Calculate latent code x_l
         k_w = self.k.t()
         distance = torch.sum(
-            x ** 2, dim=-1, keepdim=True
+            x**2, dim=-1, keepdim=True
         ) - 2 * torch.matmul(x, k_w) + torch.sum(
-            k_w ** 2, dim=0, keepdim=True
+            k_w**2, dim=0, keepdim=True
         )  # (N * L, b)
         min_distance, x_l = torch.min(distance, dim=-1)
         fit = torch.mean(min_distance)
@@ -182,7 +182,7 @@ class BottleneckBlock(nn.Module):
             update_metrics = {}
 
         # Loss
-        commit_loss = torch.norm(x_d[indices].detach() - x[indices]) ** 2 / (mask.sum() * x.shape[1])
+        commit_loss = torch.norm(x_d[indices].detach() - x[indices])**2 / (mask.sum() * x.shape[1])
 
         # Passthrough
         x_d = x + (x_d - x).detach()

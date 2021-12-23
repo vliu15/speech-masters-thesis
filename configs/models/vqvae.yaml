@@ -12,7 +12,7 @@ model:
     depth: 4
     m_conv: 1.0
     revival_threshold: 1.0
-    use_bottleneck: false
+    use_bottleneck: true
     dilation_growth_rate: 3
     dilation_cycle: null
     reverse_decoder_dilation: true

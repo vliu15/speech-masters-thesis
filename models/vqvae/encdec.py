@@ -1,5 +1,4 @@
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class Encoder(nn.Module):
@@ -13,9 +12,7 @@ class Encoder(nn.Module):
         self.strides_t = strides_t
 
         if block_type == "base":
-            from models.vqvae.block import EncoderConvBlock as ConvBlock
-        elif block_type == "s4":
-            from models.s4.s4_block import S4EncoderConvBlock as ConvBlock
+            from models.vqvae.conv import EncoderConvBlock as ConvBlock
         else:
             raise ValueError(f"block_type={block_type} not recognized")
 
@@ -39,7 +36,7 @@ class Encoder(nn.Module):
         iterator = zip(list(range(self.levels)), self.downs_t, self.strides_t)
         for level, down_t, stride_t in iterator:
             x, x_mask = self.level_blocks[level](x, x_mask)
-            emb, T = self.output_emb_width, T // (stride_t ** down_t)
+            emb, T = self.output_emb_width, T // (stride_t**down_t)
             assert x.shape == (N, emb, T), f"Expected shape {(N, emb, T)}, got {x.shape}."
 
         return x, x_mask
@@ -56,9 +53,7 @@ class Decoder(nn.Module):
         self.strides_t = strides_t
 
         if block_type == "base":
-            from models.vqvae.block import DecoderConvBlock as ConvBlock
-        elif block_type == "s4":
-            from models.s4.s4_block import S4DecoderConvBlock as ConvBlock
+            from models.vqvae.conv import DecoderConvBlock as ConvBlock
         else:
             raise ValueError(f"block_type={block_type} not recognized")
 
@@ -70,7 +65,7 @@ class Decoder(nn.Module):
         for level, down_t, stride_t in iterator:
             self.level_blocks.append(level_block(level, down_t, stride_t))
 
-        self.out = nn.Conv1d(output_emb_width, input_emb_width, 3, 1, 1)
+        self.out = nn.Conv1d(output_emb_width, input_emb_width, 1)
 
     def forward(self, xs, x_masks, all_levels=True):
         if all_levels:
@@ -86,10 +81,10 @@ class Decoder(nn.Module):
         iterator = reversed(list(zip(list(range(self.levels)), self.downs_t, self.strides_t)))
         for level, down_t, stride_t in iterator:
             x, x_mask = self.level_blocks[level](x, x_mask)
-            emb, T = self.output_emb_width, T * (stride_t ** down_t)
+            emb, T = self.output_emb_width, T * (stride_t**down_t)
             assert x.shape == (N, emb, T), f"Expected shape {(N, emb, T)}, got {x.shape}."
             if level != 0 and all_levels:
                 x = x + xs[level - 1]
 
         x = self.out(x * x_mask)
-        return x * x_mask, x_mask
+        return x, x_mask

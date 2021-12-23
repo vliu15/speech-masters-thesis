@@ -67,7 +67,10 @@ class VQVAE(WaveformReconstructionModel):
         # ####
 
         if config.model.use_bottleneck:
-            self.bottleneck = Bottleneck(config.model.l_bins, config.model.emb_width, config.model.mu, config.model.levels, config.model.revival_threshold)
+            self.bottleneck = Bottleneck(
+                config.model.l_bins, config.model.emb_width, config.model.mu, config.model.levels,
+                config.model.revival_threshold
+            )
         else:
             self.bottleneck = NoBottleneck(config.model.levels)
 

@@ -53,7 +53,7 @@ def parse_args():
     )
     parser.add_argument("--log_dir", required=False, type=str, default="./logs/vqvae", help="Path to log directory")
     parser.add_argument("--seed", required=False, type=int, default=0, help="Seed for pseudo RNG")
-    parser.add_argument("--batch_size", required=False, type=int, default=32, help="Batch size to use for training")
+    parser.add_argument("--batch_size", required=False, type=int, default=8, help="Batch size to use for training")
 
     parser.add_argument("--ema", required=False, default=False, action="store_true", help="Whether to track model EMA")
     parser.add_argument("--grad_clip_norm", required=False, type=float, default=None, help="Gradient clipping norm")
@@ -157,7 +157,7 @@ def train_epoch(
     # Train epoch
     with tqdm(
             total=len(train_dataloader),
-            leave=True,
+            leave=False,
             desc=f"Epoch {epoch} [train]",
             disable=(rank != 0),
     ) as pbar:

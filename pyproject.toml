@@ -19,7 +19,8 @@ dedent_closing_brackets = true                      # closing bracket is dedente
 
 [tool.pylint.'MESSAGES_CONTROL']
 max-line-length = 127
-disable = 'C,R,W0613,W0221,W0201,W0212'  # unused-argument,arguments-differ,attribute-defined-outside-init
+disable = 'C,W,R,not-callable'  # not-callable here for older versions of pytorch
+enable = 'unused-variable,unused-import'
 ignore = 'logs/,data/,logger.conf,pyproject.toml,requirements.txt'
 known-third-party = 'torch'
 generated-members = 'numpy.*,torch.*'

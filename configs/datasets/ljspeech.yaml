@@ -10,7 +10,7 @@ dataset:
     win_length: 1024
     n_mels: 80
     intersperse_blanks: true
-    segment_length: 32768
+    segment_length: 65536
 
     use_token: true
     use_spect: true

@@ -179,7 +179,7 @@ def main():
         q_lengths = torch.tensor(q.shape[-1], dtype=torch.long, device=device).reshape(1, 1)
         x = np.array(data["x"], dtype=np.float32)
 
-    xh = model.dequantize_and_decode(q, q_lengths).flatten().numpy()
+    xh = model.dequantize_and_decode(q, q_lengths)["xh"].flatten().numpy()
     soundfile.write(os.path.join(args.dump_dir, "sanity.wav"), xh, config.dataset.sample_rate)
     x = x[:len(xh)]
     sh = librosa.feature.melspectrogram(

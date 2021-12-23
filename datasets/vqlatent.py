@@ -101,7 +101,7 @@ class VQLatent(Dataset):
         return token + VQLatent.OFFSET, token_len, spect, spect_len, audio, audio_len, speaker
 
     def __len__(self):
-        return len(self.pickles)
+        return len(self.pkl_files)
 
     @staticmethod
     def collate(batch):

@@ -57,9 +57,6 @@ class TransformerLM(TokenToWaveformModel):
             nhead=config.model.nhead,
             dim_feedforward=config.model.dim_feedforward,
             dropout=config.model.dropout,
-            activation=config.model.activation,
-            layer_norm_eps=config.model.layer_norm_eps,
-            norm_first=config.model.norm_first,
         )
         self.transformer = nn.TransformerEncoder(
             encoder_layer=encoder_layer,

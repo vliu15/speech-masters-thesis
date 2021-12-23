@@ -1,4 +1,3 @@
-from functools import partial
 from typing import Iterable
 
 import torch
@@ -40,17 +39,18 @@ class MultiResolutionSpectralLoss(nn.Module):
     def forward(self, y, yh, mask):
         loss = 0.0
         for stft in self.stfts:
-            y_stft = stft(y * mask)
-            yh_stft = stft(yh * mask)
+            y_stft = stft(y)
+            yh_stft = stft(yh)
 
-            # mask_stft = self.downsample_mask(mask, stft)
+            # NOTE it seems that applying the mask before STFT causes massive instability
+            mask_stft = self.downsample_mask(mask, stft)
+            loss += F.mse_loss(y_stft * mask_stft, yh_stft * mask_stft, reduction="none").sum(-1).sum(-1).sqrt().mean(0)
 
-            y_stft = torch.norm(y_stft, p=2, dim=-1)
-            yh_stft = torch.norm(yh_stft, p=2, dim=-1)
-
-            loss += F.mse_loss(y_stft, yh_stft, reduction="none").sum(-1).sum(-1).sqrt().mean(0)
             if self.log:
-                loss += F.mse_loss(safe_log(y_stft), safe_log(yh_stft), reduction="none").sum(-1).sqrt().mean(0)
+                log_y_stft = safe_log(y_stft) * mask_stft
+                log_yh_stft = safe_log(yh_stft) * mask_stft
+                # Log STFT loss, sum across CxT and mean across B
+                loss += F.mse_loss(log_y_stft, log_yh_stft, reduction="none").sum(-1).sum(-1).sqrt().mean(0)
 
         return loss / len(self.stfts)
 
