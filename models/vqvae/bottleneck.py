@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.distributed as distributed
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -8,12 +9,12 @@ from utils.torch_utils import safe_log
 
 class BottleneckBlock(nn.Module):
 
-    def __init__(self, k_bins, emb_width, mu):
+    def __init__(self, k_bins, emb_width, mu, threshold):
         super().__init__()
         self.k_bins = k_bins
         self.emb_width = emb_width
         self.mu = mu
-        self.threshold = 1.0
+        self.threshold = threshold
         self.reset_k()
 
     def reset_k(self):
@@ -37,6 +38,8 @@ class BottleneckBlock(nn.Module):
         # init k_w using random vectors from x
         y = self._tile(x)
         _k_rand = y[torch.randperm(y.shape[0])][:k_bins]
+        if distributed.is_initialized():
+            distributed.broadcast(_k_rand, 0)
         self.k = _k_rand
         assert self.k.shape == (k_bins, emb_width)
         self.k_sum = self.k
@@ -63,8 +66,13 @@ class BottleneckBlock(nn.Module):
 
             _k_sum = torch.matmul(x_l_onehot, x)  # k_bins, w
             _k_elem = x_l_onehot.sum(dim=-1)  # k_bins
-            y = self._tile(x)  # apply masking here so y can't contain some tiles with all zeros
+            y = self._tile(x)
             _k_rand = y[torch.randperm(y.shape[0])][:k_bins]
+
+            if distributed.is_initialized():
+                distributed.broadcast(_k_rand, 0)
+                distributed.all_reduce(_k_sum, distributed.ReduceOp.SUM)
+                distributed.all_reduce(_k_elem, distributed.ReduceOp.SUM)
 
             # Update centres
             old_k = self.k
@@ -87,7 +95,7 @@ class BottleneckBlock(nn.Module):
         x = x.view(-1, x.shape[-1])  # x_en = (N * L, w), k_j = (w, k_bins)
 
         mask = mask.permute(0, 2, 1).contiguous()
-        mask = mask.reshape(-1, mask.shape[-1])
+        mask = mask.reshape(-1, 1)
 
         if x.shape[-1] == self.emb_width:
             prenorm = torch.norm(x - torch.mean(x)) / np.sqrt(np.prod(x.shape))
@@ -101,23 +109,23 @@ class BottleneckBlock(nn.Module):
             x = x1 + x2
         else:
             assert False, f"Expected {x.shape[-1]} to be (1 or 2) * {self.emb_width}"
-        return x * mask, prenorm, mask
+        return x, prenorm, mask
 
     def postprocess(self, x_l, x_d, x_shape, mask):
         # [NT, C] -> NTC -> NCT
         N, T = x_shape
         x_d = x_d.view(N, T, -1).permute(0, 2, 1).contiguous()
         x_l = x_l.view(N, T)
-        mask = mask.reshape(N, -1, T)
+        mask = mask.reshape(N, T, 1).permute(0, 2, 1).contiguous()
         return x_l, x_d, mask
 
     def quantize(self, x):
         # Calculate latent code x_l
         k_w = self.k.t()
         distance = torch.sum(
-            x**2, dim=-1, keepdim=True
+            x ** 2, dim=-1, keepdim=True
         ) - 2 * torch.matmul(x, k_w) + torch.sum(
-            k_w**2, dim=0, keepdim=True
+            k_w ** 2, dim=0, keepdim=True
         )  # (N * L, b)
         min_distance, x_l = torch.min(distance, dim=-1)
         fit = torch.mean(min_distance)
@@ -156,10 +164,11 @@ class BottleneckBlock(nn.Module):
 
         # Preprocess
         x, prenorm, mask = self.preprocess(x, mask)
+        indices = mask.bool()[:, 0]
 
         # Init k if not inited
         if update_k and not self.init:
-            self.init_k(x)
+            self.init_k(x[indices])
 
         # Quantise and dequantize through bottleneck
         with torch.no_grad():
@@ -168,16 +177,16 @@ class BottleneckBlock(nn.Module):
 
         # Update embeddings
         if update_k:
-            indices = mask.long().flatten()
             update_metrics = self.update_k(x[indices], x_l[indices])
         else:
             update_metrics = {}
 
         # Loss
-        commit_loss = torch.norm((x_d.detach() - x) * mask)**2 / np.prod(x.shape)
+        commit_loss = torch.norm(x_d[indices].detach() - x[indices]) ** 2 / (mask.sum() * x.shape[1])
 
         # Passthrough
         x_d = x + (x_d - x).detach()
+        x_d = x_d * mask
 
         # Postprocess
         x_l, x_d, mask = self.postprocess(x_l, x_d, (N, T), mask)
@@ -186,10 +195,10 @@ class BottleneckBlock(nn.Module):
 
 class Bottleneck(nn.Module):
 
-    def __init__(self, l_bins, emb_width, mu, levels):
+    def __init__(self, l_bins, emb_width, mu, levels, threshold):
         super().__init__()
         self.levels = levels
-        level_block = lambda level: BottleneckBlock(l_bins, emb_width, mu)
+        level_block = lambda level: BottleneckBlock(l_bins, emb_width, mu, threshold)
         self.level_blocks = nn.ModuleList()
         for level in range(self.levels):
             self.level_blocks.append(level_block(level))
@@ -246,7 +255,7 @@ class NoBottleneck(nn.Module):
         return zs
 
     def forward(self, xs, x_masks):
-        zero = torch.zeros(()).cuda()
+        zero = torch.zeros((), device=xs[0].device)
         commit_losses = [zero for _ in range(self.levels)]
         metrics = [dict(entropy=zero, usage=zero, used_curr=zero, pn=zero, dk=zero) for _ in range(self.levels)]
         return xs, xs, commit_losses, metrics

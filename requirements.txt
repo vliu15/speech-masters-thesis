@@ -1,3 +1,4 @@
+einops
 future
 inflect
 isort==5.9.3
@@ -5,8 +6,10 @@ librosa
 matplotlib
 numpy>=1.17.0
 omegaconf
+opt_einsum
 pillow
 pylint==2.12.2
+pykeops
 scipy
 soundfile
 tabulate

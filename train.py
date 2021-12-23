@@ -5,7 +5,7 @@ import logging
 import logging.config
 import os
 from collections import defaultdict
-from typing import Any, Iterable
+from typing import Iterable
 
 import torch
 import torch.distributed as distributed
@@ -53,7 +53,7 @@ def parse_args():
     )
     parser.add_argument("--log_dir", required=False, type=str, default="./logs/vqvae", help="Path to log directory")
     parser.add_argument("--seed", required=False, type=int, default=0, help="Seed for pseudo RNG")
-    parser.add_argument("--batch_size", required=False, type=int, default=8, help="Batch size to use for training")
+    parser.add_argument("--batch_size", required=False, type=int, default=32, help="Batch size to use for training")
 
     parser.add_argument("--ema", required=False, default=False, action="store_true", help="Whether to track model EMA")
     parser.add_argument("--grad_clip_norm", required=False, type=float, default=None, help="Gradient clipping norm")
@@ -64,7 +64,7 @@ def parse_args():
     parser.add_argument("--total_epochs", required=False, type=int, default=1000, help="Total epochs of training")
     parser.add_argument("--load_ckpt", required=False, type=str, default=None, help="Path to load checkpoint")
 
-    parser.add_argument("--ckpt_every_n_steps", required=False, type=int, default=5000, help="Checkpointing step frequency")
+    parser.add_argument("--ckpt_every_n_steps", required=False, type=int, default=10000, help="Checkpointing step frequency")
     parser.add_argument("--log_every_n_steps", required=False, type=int, default=10, help="Logging step frequency")
     parser.add_argument("--eval_every_n_epochs", required=False, type=int, default=5, help="Validation epoch frequency")
     args = parser.parse_args()
@@ -108,14 +108,13 @@ def train_step(
             else:
                 logger.debug("[Rank %s] Gradient overflow detected. Loss scale lowered to %s", rank, scaler.get_scale())
                 scaling_factor = scaler.get_scale()
-        pass
 
     # Full precision: O0 forward pass with optional gradient clipping, schedule LR
     else:
         loss_dict, metrics_dict = model.supervised_step(batch)
         loss = loss_dict["loss"]
         if torch.isnan(loss):
-            logger.info(
+            print(
                 dict(
                     **{k: loss_dict[k] for k in loss_dict.keys() if k.startswith("loss")},
                     **metrics_dict,
@@ -158,7 +157,7 @@ def train_epoch(
     # Train epoch
     with tqdm(
             total=len(train_dataloader),
-            leave=False,
+            leave=True,
             desc=f"Epoch {epoch} [train]",
             disable=(rank != 0),
     ) as pbar:
@@ -181,7 +180,7 @@ def train_epoch(
             )
 
             # Update per-rank stepwise averages
-            global_step += 1
+            global_step = global_step + 1
             pbar.update(1)
 
             # [Rank 0] Update loss averages, progress bars
@@ -203,7 +202,7 @@ def train_epoch(
                         losses=losses,
                         metrics=metrics,
                     )
-                    postfix = dict(**losses, lr=optimizer.param_groups[0]["lr"])
+                    postfix = dict(**losses, **metrics, lr=optimizer.param_groups[0]["lr"])
                     pbar.set_postfix(postfix)
                     losses, metrics = defaultdict(float), defaultdict(float)
 

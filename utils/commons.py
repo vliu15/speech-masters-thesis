@@ -163,6 +163,8 @@ def get_optimizer(
     else:
         raise ValueError(f"Didn't recognize scheduler name {config.scheduler.name}")
 
+    logger.info("Optimizer: %s", optimizer)
+    logger.info("Scheduler: %s", scheduler)
     return optimizer, scheduler
 
 

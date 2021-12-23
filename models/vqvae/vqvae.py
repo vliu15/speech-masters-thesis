@@ -31,6 +31,7 @@ class VQVAE(WaveformReconstructionModel):
             width=config.model.width * self.multipliers[level],
             depth=config.model.depth * self.multipliers[level],
             m_conv=config.model.m_conv,
+            block_type=config.model.block_type,
             dilation_growth_rate=config.model.dilation_growth_rate,
             dilation_cycle=config.model.dilation_cycle,
             reverse_decoder_dilation=config.model.reverse_decoder_dilation,
@@ -45,6 +46,7 @@ class VQVAE(WaveformReconstructionModel):
             width=config.model.width * self.multipliers[level],
             depth=config.model.depth * self.multipliers[level],
             m_conv=config.model.m_conv,
+            block_type=config.model.block_type,
             dilation_growth_rate=config.model.dilation_growth_rate,
             dilation_cycle=config.model.dilation_cycle,
             reverse_decoder_dilation=config.model.reverse_decoder_dilation,
@@ -65,7 +67,7 @@ class VQVAE(WaveformReconstructionModel):
         # ####
 
         if config.model.use_bottleneck:
-            self.bottleneck = Bottleneck(config.model.l_bins, config.model.emb_width, config.model.mu, config.model.levels)
+            self.bottleneck = Bottleneck(config.model.l_bins, config.model.emb_width, config.model.mu, config.model.levels, config.model.revival_threshold)
         else:
             self.bottleneck = NoBottleneck(config.model.levels)
 
@@ -83,14 +85,11 @@ class VQVAE(WaveformReconstructionModel):
             linf_topk=config.model.loss.linf_topk,
         )
 
-        self.downs_t = config.model.downs_t
-        self.strides_t = config.model.strides_t
-        self.l_bins = config.model.l_bins
         self.commit = config.model.loss.commit
         self.multispectral = config.model.loss.multispectral
 
     def forward(self, x, x_lengths, speaker=None):
-        x_mask = torch.unsqueeze(submodules.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
+        x_mask = torch.unsqueeze(submodules.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype).detach()
 
         # Encode
         xs = []
@@ -110,10 +109,9 @@ class VQVAE(WaveformReconstructionModel):
 
         # Loss
         loss_recon, loss_stft = 0., 0.
-        for level in reversed(range(self.levels)):
-            x_out = x_outs[level]
-            loss_recon += self.multi_recon_loss(x, x_out, x_mask)
-            loss_stft += self.multi_stft_loss(x, x_out, x_mask)
+        for level in range(self.levels):
+            loss_recon += self.multi_recon_loss(x, x_outs[level], x_mask)
+            loss_stft += self.multi_stft_loss(x, x_outs[level], x_mask)
 
         loss_commit = sum(commit_losses)
         loss = loss_recon + self.multispectral * loss_stft + self.commit * loss_commit

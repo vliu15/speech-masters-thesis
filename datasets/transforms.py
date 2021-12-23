@@ -1,7 +1,6 @@
 """Pytorch transforms for audio tensors"""
 
 import random
-from functools import lru_cache
 
 import librosa
 import numpy as np
@@ -9,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from librosa.util import pad_center, tiny
-from scipy.fftpack import next_fast_len
 from scipy.signal import get_window
 
 from utils.torch_utils import safe_log
@@ -122,7 +120,7 @@ class STFT(nn.Module):
         cutoff = int((self.n_fft / 2) + 1)
         real_part = forward_transform[:, :cutoff, :]
         imag_part = forward_transform[:, cutoff:, :]
-        return torch.sqrt(real_part**2 + imag_part**2)
+        return torch.sqrt(real_part ** 2 + imag_part ** 2)
 
     def inverse(self, magnitude, phase):
         recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
