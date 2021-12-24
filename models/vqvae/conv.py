@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from models.vqvae.resnet import Resnet1D
+from models.vqvae.resnet import ResNetBlock
 
 
 class MaskedConv1d(nn.Conv1d):
@@ -43,7 +43,7 @@ class EncoderConvBlock(nn.Module):
         if down_t > 0:
             for i in range(down_t):
                 blocks += [MaskedConv1d(input_emb_width if i == 0 else width, width, filter_t, stride_t, pad_t)]
-                blocks += [Resnet1D(width, depth, m_conv, dilation_growth_rate, dilation_cycle, zero_out, res_scale)]
+                blocks += [ResNetBlock(width, depth, m_conv, dilation_growth_rate, dilation_cycle, zero_out, res_scale)]
             blocks += [MaskedConv1d(width, output_emb_width, 3, 1, 1)]
         self.blocks = nn.ModuleList(blocks)
 
@@ -78,7 +78,7 @@ class DecoderConvBlock(nn.Module):
             blocks += [MaskedConv1d(output_emb_width, width, 3, 1, 1)]
             for i in range(down_t):
                 blocks += [
-                    Resnet1D(
+                    ResNetBlock(
                         width,
                         depth,
                         m_conv,

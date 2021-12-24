@@ -4,10 +4,10 @@ Script to generate datasets from VQVAE latents
 Sample usage:
 python -m scripts.generate_vq_dataset \
     --log_dir ./logs/vqvae \
-    --ckpt_num 1 \
+    --ckpt_num 10000 \
     --dump_dir ./data/VQ-Latent \
-    --batch_size 1 \
-    --n_processes 4
+    --batch_size 32 \
+    --n_processes 32
 """
 
 import argparse
@@ -61,11 +61,11 @@ class ConvenientVQVAE(VQVAE):
         x_mask = torch.unsqueeze(submodules.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 
         # Encode
-        x, x_mask = self.encoders[VQVAE.LEVEL](x, x_mask)
+        q, q_mask = self.encoders[VQVAE.LEVEL](x, x_mask)
 
         # Quantize
-        q = self.bottleneck.level_blocks[VQVAE.LEVEL].encode(x, x_mask)
-        return {"x": x.cpu(), "q": q.cpu(), "l": x_mask.sum(-1).long().cpu()}
+        q = self.bottleneck.level_blocks[VQVAE.LEVEL].encode(q, q_mask)
+        return {"x": x.cpu(), "q": q.cpu(), "l": q_mask.sum(-1).long().cpu()}
 
     @torch.no_grad()
     def dequantize_and_decode(self, q, q_lengths):
@@ -74,8 +74,8 @@ class ConvenientVQVAE(VQVAE):
 
         # Decode
         x_mask = torch.unsqueeze(submodules.sequence_mask(q_lengths, x.size(2)), 1).to(x.dtype)
-        x, _ = self.decoders[VQVAE.LEVEL]([x], [x_mask])
-        return {"xh": x.cpu()}
+        x, _ = self.decoders[VQVAE.LEVEL]([x], [x_mask], all_levels=False)
+        return {"xh": x.cpu() * x_mask}
 
 
 def dump_batch_to_pickle(index: int, x: torch.FloatTensor, q: torch.LongTensor, l: torch.LongTensor, dump_dir: str):
@@ -172,11 +172,11 @@ def main():
     logger.info("Finished generating datasets")
 
     # Run sanity check, save audio and spect
-    sanity = random.sample(os.listdir(os.path.join(args.dump_dir, "train")), 1)
+    sanity = random.sample(os.listdir(os.path.join(args.dump_dir, "train")), 1)[0]
     with open(os.path.join(args.dump_dir, "train", sanity), "rb") as f:
         data = pickle.load(f)
         q = torch.tensor(data["q"], dtype=torch.long, device=device).unsqueeze(0)
-        q_lengths = torch.tensor(q.shape[-1], dtype=torch.long, device=device).reshape(1, 1)
+        q_lengths = torch.tensor((q.shape[-1],), dtype=torch.long, device=device)
         x = np.array(data["x"], dtype=np.float32)
 
     xh = model.dequantize_and_decode(q, q_lengths)["xh"].flatten().numpy()
@@ -191,6 +191,7 @@ def main():
         window="hann",
         pad_mode="constant",
     )
+    sh = librosa.power_to_db(sh)
     s = librosa.feature.melspectrogram(
         x,
         sr=config.dataset.sample_rate,
@@ -200,13 +201,14 @@ def main():
         window="hann",
         pad_mode="constant",
     )
-    grid = spects_to_grid(s.reshape(1, -1), sh.reshape(1, -1), n=1)
+    s = librosa.power_to_db(s)
+    grid = spects_to_grid(sh[None, ...], sh[None, ...], n=1)
     Image.fromarray(grid).save(os.path.join(args.dump_dir, "sanity.png"))
     logger.info("Finished sanity check")
 
     # Save metadata
     metadata = {}
-    metadata["compression_factor"] = np.prod(np.array(config.model.strides_t)**np.array(config.model.downs_t))
+    metadata["compression_factor"] = int(np.prod(np.array(config.model.strides_t)**np.array(config.model.downs_t)))
     metadata["vocab_size"] = config.model.l_bins
     with open(os.path.join(args.dump_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(metadata, f)

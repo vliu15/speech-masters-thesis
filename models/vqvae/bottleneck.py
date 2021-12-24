@@ -148,10 +148,10 @@ class BottleneckBlock(nn.Module):
         N, _, T = x.shape
 
         # Preprocess.
-        x, _, _ = self.preprocess(x, mask)
+        x, _, mask = self.preprocess(x, mask)
 
         # Quantise
-        x_l, _ = self.quantize(x)
+        x_l, _ = self.quantize(x, mask)
 
         # Postprocess.
         x_l = x_l.view(N, T)

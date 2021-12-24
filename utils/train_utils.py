@@ -173,11 +173,11 @@ def save_checkpoint(
 
 def spects_to_grid(ys: np.ndarray, yhs: np.ndarray, n: int = 4) -> np.ndarray:
     """Converts pairs of spectrograms to matplotlib subplot images"""
-    fig, axes = plt.subplots(n, 2, figsize=(64, 16))
+    fig, axes = plt.subplots(n, 2, figsize=(16 * n, 4 * n))
     for i in range(n * 2):
         j = i % 2
         i //= 2
-        ax = axes[i, j]
+        ax = axes[i, j] if n > 1 else axes[j]
         spect = ys[i] if j == 0 else yhs[i]
         im = ax.imshow(spect, aspect="auto", origin="lower", interpolation="none")
         plt.colorbar(im, ax=ax)
