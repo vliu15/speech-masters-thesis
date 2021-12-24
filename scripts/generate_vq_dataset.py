@@ -6,8 +6,9 @@ python -m scripts.generate_vq_dataset \
     --log_dir ./logs/vqvae \
     --ckpt_num 10000 \
     --dump_dir ./data/VQ-Latent \
-    --batch_size 32 \
-    --n_processes 32
+    --batch_size 8 \
+    --n_processes 8 \
+    --n_workers 4
 """
 
 import argparse
@@ -47,10 +48,11 @@ def parse_args():
         "--dump_dir", type=str, required=False, default="./data/VQ-Latent", help="Directory to dump VQ dataset"
     )
 
-    parser.add_argument("--batch_size", type=int, required=False, default=128, help="Batch size for inference")
+    parser.add_argument("--batch_size", type=int, required=False, default=8, help="Batch size for inference")
     parser.add_argument(
-        "--n_processes", type=int, required=False, default=4, help="Number of processes to save pickle files with"
+        "--n_processes", type=int, required=False, default=8, help="Number of processes to save pickle files with"
     )
+    parser.add_argument("--n_workers", type=int, required=False, default=4, help="Number of dataloader workers")
     return parser.parse_args()
 
 
@@ -74,8 +76,8 @@ class ConvenientVQVAE(VQVAE):
 
         # Decode
         x_mask = torch.unsqueeze(submodules.sequence_mask(q_lengths, x.size(2)), 1).to(x.dtype)
-        x, _ = self.decoders[VQVAE.LEVEL]([x], [x_mask], all_levels=False)
-        return {"xh": x.cpu() * x_mask}
+        x, x_mask = self.decoders[VQVAE.LEVEL]([x], [x_mask], all_levels=False)
+        return {"xh": (x * x_mask).cpu()}
 
 
 def dump_batch_to_pickle(index: int, x: torch.FloatTensor, q: torch.LongTensor, l: torch.LongTensor, dump_dir: str):
@@ -147,6 +149,7 @@ def main():
     logger.info("Loaded checkpoint")
 
     # Init dataloaders
+    config.train.num_workers = args.n_workers
     train_dataloader, val_dataloader = get_dataloaders(config)
     train_dataloader.shuffle = False
     logger.info("Loaded dataloaders")
@@ -177,7 +180,7 @@ def main():
         data = pickle.load(f)
         q = torch.tensor(data["q"], dtype=torch.long, device=device).unsqueeze(0)
         q_lengths = torch.tensor((q.shape[-1],), dtype=torch.long, device=device)
-        x = np.array(data["x"], dtype=np.float32)
+        x = np.array(data["x"], dtype=np.float32).flatten()
 
     xh = model.dequantize_and_decode(q, q_lengths)["xh"].flatten().numpy()
     soundfile.write(os.path.join(args.dump_dir, "sanity.wav"), xh, config.dataset.sample_rate)
