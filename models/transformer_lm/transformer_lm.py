@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 
 import models.glow_tts.submodules as submodules
 from models.base import TokenToWaveformModel
-from utils.commons import get_model
+from models.vqvae.vqvae import VQVAE
 
 
 class PositionalEncoding(nn.Module):
@@ -17,8 +17,8 @@ class PositionalEncoding(nn.Module):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        position = torch.arange(max_len).unsqueeze(1).float()
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe = torch.zeros(max_len, 1, d_model)
         pe[:, 0, 0::2] = torch.sin(position * div_term)
         pe[:, 0, 1::2] = torch.cos(position * div_term)
@@ -31,9 +31,9 @@ class PositionalEncoding(nn.Module):
 
 class TransformerLM(TokenToWaveformModel):
 
-    PAD = -100  # <pad> token
-    BOS = 0  # <bos> token
-    OFFSET = 1  # number of special tokens to offset original vocabulary by
+    PAD = 0  # <pad> token
+    BOS = 1  # <bos> token
+    OFFSET = 2  # number of special tokens to offset original vocabulary by
 
     def __init__(self, config):
         super().__init__()
@@ -77,7 +77,7 @@ class TransformerLM(TokenToWaveformModel):
         ckpt = torch.load(os.path.join(log_dir, "ckpts", f"ckpt.{ckpt_num}.pt"), map_location="cpu")
 
         # Initialize model
-        vqvae, _ = get_model(config, device="cpu")
+        vqvae = VQVAE(config)
         vqvae.load_state_dict(ckpt["model"])
         return nn.ModuleDict(
             {
@@ -91,26 +91,32 @@ class TransformerLM(TokenToWaveformModel):
         y = self.vqvae["bottleneck"].decode(q)
 
         # Decode
-        y, _ = self.vqvae["decoder"]([y], [mask.to(y.dtype)])
-        return y
+        y, mask = self.vqvae["decoder"]([y], [mask.to(y.dtype)], all_levels=False)
+        y = y * mask
+        return y.squeeze(1)
 
-    def forward(self, x, x_lengths, speaker=None):
-        mask = submodules.sequence_mask(x_lengths, x.size(1)).bool()
-        src_key_padding_mask = torch.triu(torch.ones(x.size(1), x.size(1)) * float("-inf"), diagonal=1)
+    def forward(self, x: torch.Tensor, x_lengths: torch.Tensor, y: torch.Tensor, y_lengths: torch.Tensor, speaker=None):
+        src_key_padding_mask = submodules.sequence_mask(x_lengths, x.size(1)).bool()
+        mask = torch.triu(torch.ones(x.size(1), x.size(1)) * float("-inf"), diagonal=1).to(x.device)
 
-        xh = x.permute(0, 1)
+        xh = x.permute(1, 0)
         xh = self.embedding(xh) * math.sqrt(self.d_model)
         xh = self.pos_encoding(xh)
-        xh = self.transformer(xh, mask=~mask, src_key_padding_mask=src_key_padding_mask)
+        xh = self.transformer(xh, mask=mask.to(xh.dtype), src_key_padding_mask=~src_key_padding_mask)
         xh = self.classifier(xh)
-        xh = xh.permute(1, 2, 0)
+        xh = xh.permute(1, 0, 2)  # B x T x C
 
-        loss = F.cross_entropy(x[:, 1:], xh[:, :, :-1], ignore_index=TransformerLM.PAD, reduction="mean")
-        indices = (x[:, 1:] > 0)
-        accuracy = torch.sum(indices * (x[:, 1:] == xh[:, :, :-1].argmax(1))) / torch.sum(indices)
+        x_flat = x[:, 1:].flatten()
+        xh_flat = xh[:, :-1, :].reshape(len(x_flat), -1)
+
+        # Undo offset from special tokens
+        loss_mask = (x_flat >= TransformerLM.OFFSET)
+        target = x_flat[loss_mask] - TransformerLM.OFFSET
+        loss = F.cross_entropy(xh_flat[loss_mask], target, reduction="mean")
+        accuracy = torch.sum(target == xh_flat[loss_mask].argmax(1)) / torch.sum(loss_mask)
 
         if not self.training:
-            yh = self.reconstruct(xh[:, :, :-1].argmax(1), mask[:, None, :-1])
+            yh = self.reconstruct(xh[:, :-1, :].argmax(-1), src_key_padding_mask[:, None, :-1])
         else:
             yh = None
 

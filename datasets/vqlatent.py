@@ -3,6 +3,7 @@ import math
 import os
 import pickle
 import random
+from itertools import groupby
 
 import torch
 import torch.nn.functional as F
@@ -14,19 +15,21 @@ from datasets.transforms import MelSpectrogram, STFT
 
 class VQLatent(Dataset):
 
-    PAD = -100  # <pad> token
-    BOS = 0  # <bos> token
-    OFFSET = 1  # number of special tokens to offset original vocabulary by
+    PAD = 0  # <pad> token
+    BOS = 1  # <bos> token
+    OFFSET = 2  # number of special tokens to offset original vocabulary by
 
     def __init__(self, config: DictConfig, split: str):
         super().__init__()
 
+        self.split = split
         self.dataset_path = config.dataset.dataset_path
         self.pkl_files = list(os.listdir(os.path.join(config.dataset.dataset_path, split)))
-        with open(os.path.join(config.dataset_path, "metadata.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(config.dataset.dataset_path, "metadata.json"), "r", encoding="utf-8") as f:
             self.metadata = json.load(f)
 
         self.segment_length = config.dataset.segment_length
+        self.remove_consecutive = config.dataset.remove_consecutive
 
         assert config.model.vocab_size == self.metadata["vocab_size"], \
             "Need to specify correct model vocab size for this dataset"
@@ -58,26 +61,34 @@ class VQLatent(Dataset):
     def __getitem__(self, index):
         # Load pickle
         pkl_file = self.pkl_files[index]
-        with open(os.path.join(self.dataset_path, pkl_file), "rb") as f:
+        with open(os.path.join(self.dataset_path, self.split, pkl_file), "rb") as f:
             pkl = pickle.load(f)
             audio = pkl["x"]
             token = pkl["q"]
             speaker = torch.tensor((pkl["speaker"],), dtype=torch.long) if "speaker" in pkl else None
 
+            if self.remove_consecutive:
+                token = [t[0] for t in groupby(token)]
+
         # Truncate to segment length
         if self.segment_length > 0:
-            if token.shape[-1] > self.segment_length:
+            if len(token) > self.segment_length:
                 # Trim tokens
-                random_start = random.randint(0, token.shape[-1] - self.segment_length)
+                random_start = random.randint(0, len(token) - self.segment_length)
                 token = token[random_start:random_start + self.segment_length]
                 # Trim audio (longer by a factor of compression_factor)
                 random_start = random_start * self.metadata["compression_factor"]
                 audio = audio[random_start:random_start + self.segment_length * self.metadata["compression_factor"]]
 
         # Prepend <BOS> and append <EOS> tokens and tensorize
-        token = [VQLatent.BOS] + token
-        token = torch.tensor(token, dtype=torch.long)
-        audio = torch.tensor(audio, dtype=torch.float32)
+
+        ## NOTE since token indices are [0, 1, ..., k_bins] but we want to reserve PAD and BOS for [0, 1], we shift
+        ## all token indices by OFFSET.
+        token = [VQLatent.BOS - VQLatent.OFFSET] + token
+        token = torch.tensor(token, dtype=torch.long).flatten() + VQLatent.OFFSET
+        ##
+
+        audio = torch.tensor(audio, dtype=torch.float32).flatten()
         token_len = token.shape[-1]
         audio_len = audio.shape[-1]
 
@@ -98,7 +109,7 @@ class VQLatent(Dataset):
         if not self.use_token:
             token = token_len = None
 
-        return token + VQLatent.OFFSET, token_len, spect, spect_len, audio, audio_len, speaker
+        return token, token_len, spect, spect_len, audio, audio_len, speaker
 
     def __len__(self):
         return len(self.pkl_files)

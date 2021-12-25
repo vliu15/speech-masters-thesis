@@ -4,7 +4,7 @@ Script to generate datasets from VQVAE latents
 Sample usage:
 python -m scripts.generate_vq_dataset \
     --log_dir ./logs/vqvae \
-    --ckpt_num 10000 \
+    --ckpt_num 30000 \
     --dump_dir ./data/VQ-Latent \
     --batch_size 8 \
     --n_processes 8 \
@@ -67,7 +67,7 @@ class ConvenientVQVAE(VQVAE):
 
         # Quantize
         q = self.bottleneck.level_blocks[VQVAE.LEVEL].encode(q, q_mask)
-        return {"x": x.cpu(), "q": q.cpu(), "l": q_mask.sum(-1).long().cpu()}
+        return {"x": x.cpu(), "xl": x_lengths.cpu(), "q": q.cpu(), "ql": q_mask.sum(-1).long().cpu()}
 
     @torch.no_grad()
     def dequantize_and_decode(self, q, q_lengths):
@@ -80,9 +80,11 @@ class ConvenientVQVAE(VQVAE):
         return {"xh": (x * x_mask).cpu()}
 
 
-def dump_batch_to_pickle(index: int, x: torch.FloatTensor, q: torch.LongTensor, l: torch.LongTensor, dump_dir: str):
-    x = x.tolist()
-    q = q[:l].tolist()
+def dump_batch_to_pickle(
+    index: int, x: torch.FloatTensor, xl: torch.LongTensor, q: torch.LongTensor, ql: torch.LongTensor, dump_dir: str
+):
+    x = x[:xl].flatten().tolist()
+    q = q[:ql].flatten().tolist()
     with open(os.path.join(dump_dir, f"{index:05d}.pkl"), "wb") as f:
         pickle.dump({"x": x, "q": q}, f)
     return Counter(q)
@@ -111,8 +113,9 @@ def generate_and_dump_dataset(
             zip(
                 range(i * batch_size, i * batch_size + len(batch[0])),
                 out_dict["x"],
+                out_dict["xl"],
                 out_dict["q"],
-                out_dict["l"],
+                out_dict["ql"],
                 [os.path.join(dump_dir, split)] * len(batch[0]),
             ),
         )
@@ -205,7 +208,7 @@ def main():
         pad_mode="constant",
     )
     s = librosa.power_to_db(s)
-    grid = spects_to_grid(sh[None, ...], sh[None, ...], n=1)
+    grid = spects_to_grid(s[None, ...], sh[None, ...], n=1)
     Image.fromarray(grid).save(os.path.join(args.dump_dir, "sanity.png"))
     logger.info("Finished sanity check")
 

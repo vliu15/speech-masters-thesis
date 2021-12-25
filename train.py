@@ -11,6 +11,7 @@ import torch
 import torch.distributed as distributed
 import torch.multiprocessing as multiprocessing
 import torch.nn as nn
+import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -67,6 +68,13 @@ def parse_args():
     parser.add_argument("--ckpt_every_n_steps", required=False, type=int, default=10000, help="Checkpointing step frequency")
     parser.add_argument("--log_every_n_steps", required=False, type=int, default=10, help="Logging step frequency")
     parser.add_argument("--eval_every_n_epochs", required=False, type=int, default=5, help="Validation epoch frequency")
+    parser.add_argument(
+        "--run_sanity_val_epoch",
+        required=False,
+        default=False,
+        action="store_true",
+        help="Run val epoch at start of training"
+    )
     args = parser.parse_args()
     return args
 
@@ -216,7 +224,6 @@ def train_epoch(
 def val_step(
     *,
     batch: Iterable[torch.Tensor],
-    config: DictConfig,
     model: nn.Module,
     device: str,
 ):
@@ -235,7 +242,6 @@ def val_epoch(
     val_dataloader: torch.utils.data.DataLoader,
     writer: torch.utils.tensorboard.SummaryWriter,
     device: str,
-    rank: int = 0,
 ):
     """Runs one epoch of validation"""
     losses, metrics = defaultdict(float), defaultdict(float)
@@ -253,7 +259,6 @@ def val_epoch(
         ):
             loss_dict, metrics_dict = val_step(
                 batch=batch,
-                config=config,
                 model=model,
                 device=device,
             )
@@ -276,7 +281,25 @@ def val_epoch(
         losses=losses,
         metrics=metrics,
     )
-    return torch.cat(y, dim=0).float().numpy(), torch.cat(yh, dim=0).float().numpy(), {**losses, **metrics}
+
+    # Concatenate batched tensors for batched saving, but these might be different lengths
+    y_lens = [k.shape[-1] for k in y]
+    yh_lens = [k.shape[-1] for k in yh]
+    if min(y_lens) != max(y_lens):
+        y = [F.pad(k, (0, max(y_lens) - k.shape[-1])) for k in y]
+    if min(yh_lens) != max(yh_lens):
+        yh = [F.pad(k, (0, max(yh_lens) - k.shape[-1])) for k in yh]
+
+    y = torch.cat(y, dim=0).float().numpy()
+    yh = torch.cat(yh, dim=0).float().numpy()
+
+    if isinstance(model, (TokenToWaveformModel, WaveformReconstructionModel)):
+        save_audio_and_computed_spect(config, epoch, writer, y, yh, n=4)
+    elif isinstance(model, (TokenToSpectrogramModel, SpectrogramReconstructionModel)):
+        save_spect_and_inverted_audio(config, epoch, writer, y, yh, n=4)
+
+    postfix = {**losses, **metrics}
+    return postfix
 
 
 def train(
@@ -301,6 +324,19 @@ def train(
     barrier()
     if rank == 0:
         print_top_level_summary(model)
+
+    if config.train.run_sanity_val_epoch and rank == 0:
+        logger.info("Running sanity val epoch")
+        postfix = val_epoch(
+            epoch=epoch,
+            config=config,
+            model=model,
+            ema=ema,
+            val_dataloader=val_dataloader,
+            writer=writer,
+            device=device,
+        )
+        logger.info("Sanity val epoch done: %s", postfix)
 
     # Train
     postfix = {}
@@ -328,7 +364,7 @@ def train(
                 rank=rank,
             )
             if epoch % config.train.eval_every_n_epochs == 0 and rank == 0:
-                y, yh, postfix = val_epoch(
+                postfix = val_epoch(
                     epoch=epoch,
                     config=config,
                     model=model,
@@ -336,13 +372,7 @@ def train(
                     val_dataloader=val_dataloader,
                     writer=writer,
                     device=device,
-                    rank=rank,
                 )
-
-                if isinstance(model, (TokenToWaveformModel, WaveformReconstructionModel)):
-                    save_audio_and_computed_spect(config, epoch, writer, y, yh, n=4)
-                elif isinstance(model, (TokenToSpectrogramModel, SpectrogramReconstructionModel)):
-                    save_spect_and_inverted_audio(config, epoch, writer, y, yh, n=4)
 
             barrier()
             pbar.set_postfix(postfix)
@@ -506,6 +536,7 @@ def main():
                     "ckpt_every_n_steps": args.ckpt_every_n_steps,
                     "log_every_n_steps": args.log_every_n_steps,
                     "eval_every_n_epochs": args.eval_every_n_epochs,
+                    "run_sanity_val_epoch": args.run_sanity_val_epoch,
                 }
         }
     )

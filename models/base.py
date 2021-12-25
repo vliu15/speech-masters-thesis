@@ -9,7 +9,7 @@ class TokenToWaveformModel(nn.Module):
     def supervised_step(self, batch):
         x, x_lengths, _, _, y, y_lengths, speaker = batch
         loss_dict, metrics_dict = self.forward(x, x_lengths, y, y_lengths, speaker=speaker)
-        loss_dict["y"] = y
+        loss_dict["y"] = y.squeeze(1)
         return loss_dict, metrics_dict
 
     def forward(self, *args, **kwargs):
