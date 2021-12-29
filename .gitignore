@@ -1,6 +1,8 @@
 data/
 logs/
+outputs/
 *.json
+*.jpg
 *.png
 
 # Byte-compiled / optimized / DLL files

@@ -15,16 +15,16 @@ def get_mod_cycle(depth, cycle):
 
 class ResLayer(nn.Module):
 
-    def __init__(self, n_in, n_state, n_out=None, dilation=1, kernel_size=3, zero_out=True, res_scale=1.0):
+    def __init__(self, n_in, n_state, dilation=1, kernel_size=3, zero_out=True, res_scale=1.0, dropout=0.1):
         super().__init__()
         padding = ((kernel_size - 1) * dilation) // 2
-        if n_out is None:
-            n_out = n_in
         self.model = nn.Sequential(
+            nn.Dropout(p=dropout),
             nn.ReLU(),
             nn.Conv1d(n_in, n_state, kernel_size, 1, padding, dilation),
+            nn.Dropout(p=dropout),
             nn.ReLU(),
-            nn.Conv1d(n_state, n_out, 1, 1, 0),
+            nn.Conv1d(n_state, n_in, 1, 1, 0),
         )
         if zero_out:
             out = self.model[-1]
@@ -188,7 +188,6 @@ class GatedHiFiBlock(nn.Module):
         self,
         n_in,
         n_depth,
-        m_conv=1.0,
         dilation_growth_rate=1,
         dilation_cycle=None,
         kernel_size_growth_rate=2,
@@ -199,34 +198,29 @@ class GatedHiFiBlock(nn.Module):
     ):
         super().__init__()
 
-        n_hid = int(m_conv * n_in)
         self.res_scale = 1.0 if not res_scale else 1.0 / math.sqrt(n_depth)
-
-        self.conv_in = nn.Conv1d(n_in, n_hid, 1)
-        self.conv_out = nn.Conv1d(n_hid, n_in, 1)
-
-        if zero_out:
-            nn.init.zeros_(self.conv_out.weight)
-            nn.init.zeros_(self.conv_out.bias)
-
         self.blocks = nn.ModuleList(
             [
-                ResLayer(
-                    n_hid,
-                    n_hid,
-                    n_out=2 * n_hid,
-                    dilation=dilation_growth_rate**get_mod_cycle(depth, dilation_cycle),
-                    kernel_size=3 + kernel_size_growth_rate * get_mod_cycle(depth, kernel_size_cycle),
-                    zero_out=zero_out,
-                    res_scale=1.0 if not res_scale else 1.0 / math.sqrt(n_depth)
+                nn.Sequential(
+                    nn.Conv1d(n_in, 2 * n_in, 1),
+                    ResLayer(
+                        2 * n_in,
+                        2 * n_in,
+                        dilation=dilation_growth_rate**get_mod_cycle(depth, dilation_cycle),
+                        kernel_size=3 + kernel_size_growth_rate * get_mod_cycle(depth, kernel_size_cycle),
+                        zero_out=zero_out,
+                        res_scale=1.0 if not res_scale else 1.0 / math.sqrt(n_depth)
+                    )
                 ) for depth in range(n_depth)
             ]
         )
+        self.gate = nn.Conv1d(n_in, n_in, 1)
+        if zero_out:
+            nn.init.zeros_(self.gate.weight)
+            nn.init.zeros_(self.gate.bias)
 
     def forward(self, x, mask=None):
         mask = 1. if mask is None else mask
-
-        x = self.conv_in(x * mask)
 
         # Apply HiFiBlock layers and split into pre-gating activations
         t, s = [], []
@@ -241,7 +235,7 @@ class GatedHiFiBlock(nn.Module):
         s = torch.stack(s, dim=1)
         z = torch.tanh(t) * torch.softmax(s, dim=1)
         z = torch.sum(z, dim=1)
+        z = self.gate(z * mask)
 
-        z = self.conv_out(z * mask)
-        x = x + self.res_scale(z)
+        x = x + self.res_scale * z
         return x, mask

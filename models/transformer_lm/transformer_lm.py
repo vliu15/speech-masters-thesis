@@ -70,6 +70,18 @@ class TransformerLM(TokenToWaveformModel):
         # Load VQVAE for audio reconstruction
         self.vqvae = TransformerLM.load_vqvae(config.model.vqvae.log_dir, config.model.vqvae.ckpt_num)
 
+        # Loss function
+        if config.model.loss_type == "ce":
+            self.loss = F.cross_entropy
+        elif config.model.loss_type == "mmi":
+            from models.transformer_lm.losses import MaximumMutualInformationLoss
+            self.loss = MaximumMutualInformationLoss(num_classes=config.model.vocab_size)
+        elif config.model.loss_type == "focal":
+            from models.transformer_lm.losses import FocalLoss
+            self.loss = FocalLoss(gamma=5.0, alpha=0.1)
+        else:
+            raise ValueError(f"Loss function {config.model.loss} not supported")
+
     @staticmethod
     def load_vqvae(log_dir, ckpt_num):
         # Load config and ckpt
@@ -112,8 +124,8 @@ class TransformerLM(TokenToWaveformModel):
         # Undo offset from special tokens
         loss_mask = (x_flat >= TransformerLM.OFFSET)
         target = x_flat[loss_mask] - TransformerLM.OFFSET
-        loss = F.cross_entropy(xh_flat[loss_mask], target, reduction="mean")
-        accuracy = torch.sum(target == xh_flat[loss_mask].argmax(1)) / torch.sum(loss_mask)
+        loss = self.loss(xh_flat[loss_mask], target)
+        accuracy = torch.sum(target == (xh_flat[loss_mask].argmax(1))).float() / torch.sum(loss_mask)
 
         if not self.training:
             yh = self.reconstruct(xh[:, :-1, :].argmax(-1), src_key_padding_mask[:, None, :-1])
@@ -121,3 +133,22 @@ class TransformerLM(TokenToWaveformModel):
             yh = None
 
         return {"loss": loss, "yh": yh}, {"accuracy": accuracy}
+
+    @torch.no_grad()
+    def sample(self, batch_size: int, n_steps: int, device: str = "cuda"):
+        from tqdm import tqdm
+
+        q = torch.tensor([TransformerLM.BOS] * batch_size, dtype=torch.long, device=device).unsqueeze(-1)  # B x T
+        for _ in tqdm(range(n_steps), desc=f"Sampling from {self.__class__.__name__}"):
+            x = q.permute(1, 0)
+            x = self.embedding(x) * math.sqrt(self.d_model)
+            x = self.pos_encoding(x)
+            x = self.transformer(x, mask=None, src_key_padding_mask=None)
+            x = self.classifier(x)
+            x = F.softmax(x[-1, :, :], dim=-1)  # B x C
+            x = torch.multinomial(x, 1)  # B x 1
+            q = torch.cat([q, x], dim=-1)
+
+        q = q[:, 1:]
+        xh = self.reconstruct(q, torch.ones_like(q).to(x.dtype).unsqueeze(1))
+        return xh, q

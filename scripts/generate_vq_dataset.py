@@ -4,7 +4,7 @@ Script to generate datasets from VQVAE latents
 Sample usage:
 python -m scripts.generate_vq_dataset \
     --log_dir ./logs/vqvae \
-    --ckpt_num 30000 \
+    --ckpt_num 32500 \
     --dump_dir ./data/VQ-Latent \
     --batch_size 8 \
     --n_processes 8 \

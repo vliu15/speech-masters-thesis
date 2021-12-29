@@ -1,5 +1,7 @@
 import torch.nn as nn
 
+from models.vqvae.conv import DecoderConvBlock, EncoderConvBlock
+
 
 class Encoder(nn.Module):
 
@@ -11,16 +13,12 @@ class Encoder(nn.Module):
         self.downs_t = downs_t
         self.strides_t = strides_t
 
-        if block_type == "base":
-            from models.vqvae.conv import EncoderConvBlock as ConvBlock
-        else:
-            raise ValueError(f"block_type={block_type} not recognized")
-
         block_kwargs_copy = dict(**block_kwargs)
         if "reverse_decoder_dilation" in block_kwargs_copy:
             del block_kwargs_copy["reverse_decoder_dilation"]
-        level_block = lambda level, down_t, stride_t: ConvBlock(
-            input_emb_width if level == 0 else output_emb_width, output_emb_width, down_t, stride_t, **block_kwargs_copy
+        level_block = lambda level, down_t, stride_t: EncoderConvBlock(
+            input_emb_width
+            if level == 0 else output_emb_width, output_emb_width, down_t, stride_t, block_type, **block_kwargs_copy
         )
         self.level_blocks = nn.ModuleList()
         iterator = zip(list(range(self.levels)), downs_t, strides_t)
@@ -52,13 +50,8 @@ class Decoder(nn.Module):
         self.downs_t = downs_t
         self.strides_t = strides_t
 
-        if block_type == "base":
-            from models.vqvae.conv import DecoderConvBlock as ConvBlock
-        else:
-            raise ValueError(f"block_type={block_type} not recognized")
-
-        level_block = lambda level, down_t, stride_t: ConvBlock(
-            output_emb_width, output_emb_width, down_t, stride_t, **block_kwargs
+        level_block = lambda level, down_t, stride_t: DecoderConvBlock(
+            output_emb_width, output_emb_width, down_t, stride_t, block_type, **block_kwargs
         )
         self.level_blocks = nn.ModuleList()
         iterator = zip(list(range(self.levels)), downs_t, strides_t)

@@ -151,7 +151,7 @@ def get_optimizer(
         from utils.lr_scheduler import NoamLR
         scheduler = NoamLR(
             optimizer,
-            dim_model=config.model.encoder.hidden_channels,
+            dim_model=config.model.d_model,
             warmup_steps=config.scheduler.warmup_steps,
         )
     elif config.scheduler.name == "cosine":

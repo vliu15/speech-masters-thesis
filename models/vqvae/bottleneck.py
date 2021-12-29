@@ -172,7 +172,7 @@ class BottleneckBlock(nn.Module):
         N, _, T = x.shape
 
         # Preprocess
-        x, prenorm, mask = self.preprocess(x, mask)
+        x, _, mask = self.preprocess(x, mask)
         indices = (mask != 0)[:, 0]
 
         # Init k if not inited
@@ -198,7 +198,7 @@ class BottleneckBlock(nn.Module):
 
         # Postprocess
         x_l, x_d, mask = self.postprocess(x_l, x_d, (N, T), mask)
-        return x_l, x_d * mask, commit_loss, dict(fit=fit, pn=prenorm, **update_metrics)
+        return x_l, x_d * mask, commit_loss, dict(fit=fit, **update_metrics)
 
 
 class Bottleneck(nn.Module):

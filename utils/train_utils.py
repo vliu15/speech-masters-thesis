@@ -206,7 +206,7 @@ def save_spect_and_inverted_audio(
     """Saves inference spectrogram and its inverted audio"""
     # Save spectrogram as grid
     grid = spects_to_grid(spect, spect_pred, n=n)
-    Image.fromarray(grid).save(os.path.join(config.train.log_dir, "spect", f"val_spect_{global_step}.jpg"))
+    Image.fromarray(grid).save(os.path.join(config.train.log_dir, "spect", f"val_spect_{global_step}.png"))
     writer.add_image("mel/val", grid, global_step, dataformats="HWC")
 
     # Save audio individually
@@ -300,5 +300,5 @@ def save_audio_and_computed_spect(
     spect = np.array(spect)
     spect_pred = np.array(spect_pred)
     grid = spects_to_grid(spect, spect_pred, n=n)
-    Image.fromarray(grid).save(os.path.join(config.train.log_dir, "spect", f"val_spect_{global_step}.jpg"))
+    Image.fromarray(grid).save(os.path.join(config.train.log_dir, "spect", f"val_spect_{global_step}.png"))
     writer.add_image("mel/val", grid, global_step, dataformats="HWC")

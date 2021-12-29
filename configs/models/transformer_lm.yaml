@@ -1,23 +1,25 @@
 model:
     _import_: models.transformer_lm.transformer_lm.TransformerLM
 
-    vocab_size: 2048
-    embed_dim: &d_model 512
+    vocab_size: 512
+    embed_dim: &d_model 1024
     max_len: 5000
 
     num_layers: 12
 
     d_model: *d_model
     nhead: 16
-    dim_feedforward: 2048
+    dim_feedforward: 4096
     dropout: 0.1
     activation: relu
     layer_norm_eps: 1e-5
     norm_first: false
 
+    loss_type: ce
+
     vqvae:
         log_dir: ./logs/vqvae
-        ckpt_num: 30000
+        ckpt_num: 32500
 
 optimizer:
     name: adam

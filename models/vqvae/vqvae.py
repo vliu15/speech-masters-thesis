@@ -33,6 +33,8 @@ class VQVAE(WaveformReconstructionModel):
             m_conv=config.model.m_conv,
             block_type=config.model.block_type,
             dilation_growth_rate=config.model.dilation_growth_rate,
+            kernel_size_growth_rate=config.model.kernel_size_growth_rate,
+            kernel_size_cycle=config.model.kernel_size_cycle,
             dilation_cycle=config.model.dilation_cycle,
             reverse_decoder_dilation=config.model.reverse_decoder_dilation,
             zero_out=config.model.zero_out,
@@ -49,6 +51,8 @@ class VQVAE(WaveformReconstructionModel):
             block_type=config.model.block_type,
             dilation_growth_rate=config.model.dilation_growth_rate,
             dilation_cycle=config.model.dilation_cycle,
+            kernel_size_growth_rate=config.model.kernel_size_growth_rate,
+            kernel_size_cycle=config.model.kernel_size_cycle,
             reverse_decoder_dilation=config.model.reverse_decoder_dilation,
             zero_out=config.model.zero_out,
         )

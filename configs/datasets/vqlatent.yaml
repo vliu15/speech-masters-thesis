@@ -9,9 +9,9 @@ dataset:
     win_length: 1024
     n_mels: 80
     intersperse_blanks: true
-    segment_length: 1024
+    segment_length: 256
 
-    remove_consecutive: true
+    remove_consecutive: false
 
     use_token: true
     use_spect: false
