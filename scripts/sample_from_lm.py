@@ -3,11 +3,11 @@ Script to sample from token language model
 
 Sample usage:
 python -m scripts.sample_from_lm \
-    --log_dir ./logs/transformer_lm \
-    --ckpt_num 3000 \
+    --log_dir ./logs/transformer_lm_focal \
+    --ckpt_num 5000 \
     --dump_dir ./outputs \
     --n_samples 4 \
-    --n_steps 1024
+    --n_steps 512
 """
 
 import argparse
@@ -38,6 +38,7 @@ def parse_args():
 
     parser.add_argument("--n_samples", type=int, required=False, default=4, help="Batch size for inference")
     parser.add_argument("--n_steps", type=int, required=False, default=1024, help="Batch size for inference")
+    parser.add_argument("--sigma", type=float, required=False, default=1.0, help="Sampling temperature")
     return parser.parse_args()
 
 
@@ -61,7 +62,7 @@ def main():
     os.makedirs(args.dump_dir, exist_ok=True)
 
     # Sample
-    x_samples, q_samples = model.sample(batch_size=args.n_samples, n_steps=args.n_steps, device=device)
+    x_samples, q_samples = model.sample(batch_size=args.n_samples, n_steps=args.n_steps, device=device, sigma=args.sigma)
     logger.info("Generated token samples")
 
     # Save audio and spect

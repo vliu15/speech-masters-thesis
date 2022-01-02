@@ -72,13 +72,13 @@ class TransformerLM(TokenToWaveformModel):
 
         # Loss function
         if config.model.loss_type == "ce":
-            self.loss = F.cross_entropy
+            self.loss = nn.CrossEntropyLoss(reduction="mean")
         elif config.model.loss_type == "mmi":
             from models.transformer_lm.losses import MaximumMutualInformationLoss
             self.loss = MaximumMutualInformationLoss(num_classes=config.model.vocab_size)
         elif config.model.loss_type == "focal":
             from models.transformer_lm.losses import FocalLoss
-            self.loss = FocalLoss(gamma=5.0, alpha=0.1)
+            self.loss = FocalLoss(gamma=10.0, reduction="mean")
         else:
             raise ValueError(f"Loss function {config.model.loss} not supported")
 
@@ -135,8 +135,9 @@ class TransformerLM(TokenToWaveformModel):
         return {"loss": loss, "yh": yh}, {"accuracy": accuracy}
 
     @torch.no_grad()
-    def sample(self, batch_size: int, n_steps: int, device: str = "cuda"):
+    def sample(self, batch_size: int, n_steps: int, device: str = "cuda", sigma: float = 1.0):
         from tqdm import tqdm
+        assert sigma > 0, "Temperature scalar must be positive"
 
         q = torch.tensor([TransformerLM.BOS] * batch_size, dtype=torch.long, device=device).unsqueeze(-1)  # B x T
         for _ in tqdm(range(n_steps), desc=f"Sampling from {self.__class__.__name__}"):
@@ -145,7 +146,7 @@ class TransformerLM(TokenToWaveformModel):
             x = self.pos_encoding(x)
             x = self.transformer(x, mask=None, src_key_padding_mask=None)
             x = self.classifier(x)
-            x = F.softmax(x[-1, :, :], dim=-1)  # B x C
+            x = F.softmax(x[-1, :, :] / sigma, dim=-1)  # B x C
             x = torch.multinomial(x, 1)  # B x 1
             q = torch.cat([q, x], dim=-1)
 

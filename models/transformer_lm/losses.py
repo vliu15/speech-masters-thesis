@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,44 +12,91 @@ class MaximumMutualInformationLoss(nn.Module):
         self.num_classes = num_classes
 
     def forward(self, yh, y):
-        assert yh.shape == y.shape
         p_zy = F.softmax(yh, dim=-1)
         p_z = p_zy.mean(0)
         h_z = -1. * (p_z * torch.log(p_z)).sum(-1)
 
-        x = p_zy * F.log_softmax(F.one_hot(y, num_classes=self.num_classes), dim=-1)
+        x = p_zy * F.log_softmax(F.one_hot(y, num_classes=self.num_classes).to(yh.dtype), dim=-1)
         h_z_x_ub = -1 * x.sum(-1).mean(0)
         return h_z_x_ub - h_z
 
 
 class FocalLoss(nn.Module):
+    """Focal Loss, as described in https://arxiv.org/abs/1708.02002.
 
-    def __init__(self, gamma: int = 0, alpha: float = None):
+    It is essentially an enhancement to cross entropy loss and is
+    useful for classification tasks when there is a large class imbalance.
+    x is expected to contain raw, unnormalized scores for each class.
+    y is expected to contain class labels.
+    Shape:
+        - x: (batch_size, C) or (batch_size, C, d1, d2, ..., dK), K > 0.
+        - y: (batch_size,) or (batch_size, d1, d2, ..., dK), K > 0.
+    """
+
+    def __init__(
+        self, gamma: float = 0., alpha: Optional[torch.Tensor] = None, reduction: str = "mean", ignore_index: int = -100
+    ):
+        """Constructor.
+        Args:
+            alpha (Tensor, optional): Weights for each class. Defaults to None.
+            gamma (float, optional): A constant, as described in the paper.
+                Defaults to 0.
+            reduction (str, optional): "mean", "sum" or "none".
+                Defaults to "mean".
+            ignore_index (int, optional): class label to ignore.
+                Defaults to -100.
+        """
+        if reduction not in ("mean", "sum", "none"):
+            raise ValueError("Reduction must be one of: 'mean', 'sum', 'none'.")
+
         super().__init__()
-        self.gamma = gamma
         self.alpha = alpha
-        if isinstance(alpha, (float, int)):
-            self.alpha = torch.Tensor([alpha, 1 - alpha])
-        if isinstance(alpha, list):
-            self.alpha = torch.Tensor(alpha)
+        self.gamma = gamma
+        self.ignore_index = ignore_index
+        self.reduction = reduction
 
-    def forward(self, input, target):
-        if input.dim() > 2:
-            input = input.view(input.size(0), input.size(1), -1)  # N,C,H,W => N,C,H*W
-            input = input.transpose(1, 2)  # N,C,H*W => N,H*W,C
-            input = input.contiguous().view(-1, input.size(2))  # N,H*W,C => N*H*W,C
-        target = target.view(-1, 1)
+        self.nll_loss = nn.NLLLoss(weight=alpha, reduction="none", ignore_index=ignore_index)
 
-        logpt = F.log_softmax(input)
-        logpt = logpt.gather(1, target)
-        logpt = logpt.view(-1)
-        pt = logpt.data.exp()
+    def __repr__(self):
+        arg_keys = ["alpha", "gamma", "ignore_index", "reduction"]
+        arg_vals = [self.__dict__[k] for k in arg_keys]
+        arg_strs = [f"{k}={v}" for k, v in zip(arg_keys, arg_vals)]
+        arg_str = ", ".join(arg_strs)
+        return f"{type(self).__name__}({arg_str})"
 
-        if self.alpha is not None:
-            if self.alpha.type() != input.data.type():
-                self.alpha = self.alpha.type_as(input.data)
-            at = self.alpha.gather(0, target.data.view(-1))
-            logpt = logpt * at
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        if x.ndim > 2:
+            # (N, C, d1, d2, ..., dK) --> (N * d1 * ... * dK, C)
+            c = x.shape[1]
+            x = x.permute(0, *range(2, x.ndim), 1).reshape(-1, c)
+            # (N, d1, d2, ..., dK) --> (N * d1 * ... * dK,)
+            y = y.view(-1)
 
-        loss = -1 * (1 - pt)**self.gamma * logpt
-        return loss.mean()
+        unignored_mask = y != self.ignore_index
+        y = y[unignored_mask]
+        if len(y) == 0:
+            return 0.
+        x = x[unignored_mask]
+
+        # compute weighted cross entropy term: -alpha * log(pt)
+        # (alpha is already part of self.nll_loss)
+        log_p = F.log_softmax(x, dim=-1)
+        ce = self.nll_loss(log_p, y)
+
+        # get true class column from each row
+        all_rows = torch.arange(len(x))
+        log_pt = log_p[all_rows, y]
+
+        # compute focal term: (1 - pt)^gamma
+        pt = log_pt.exp()
+        focal_term = (1 - pt)**self.gamma
+
+        # the full loss: -alpha * ((1 - pt)^gamma) * log(pt)
+        loss = focal_term * ce
+
+        if self.reduction == "mean":
+            loss = loss.mean()
+        elif self.reduction == "sum":
+            loss = loss.sum()
+
+        return loss

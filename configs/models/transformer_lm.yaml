@@ -2,14 +2,14 @@ model:
     _import_: models.transformer_lm.transformer_lm.TransformerLM
 
     vocab_size: 512
-    embed_dim: &d_model 1024
+    embed_dim: &d_model 512
     max_len: 5000
 
     num_layers: 12
 
     d_model: *d_model
     nhead: 16
-    dim_feedforward: 4096
+    dim_feedforward: 2048
     dropout: 0.1
     activation: relu
     layer_norm_eps: 1e-5
@@ -23,9 +23,11 @@ model:
 
 optimizer:
     name: adam
-    lr: 0.0001
+    lr: 0.0002
     betas: [0.9, 0.98]
     weight_decay: 0
     eps: 1e-9
 
-scheduler: null
+scheduler:
+    name: linear
+    warmup_steps: 1000
